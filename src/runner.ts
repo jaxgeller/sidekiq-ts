@@ -4,6 +4,8 @@ import { resolveJob } from "./registry.js";
 import type { JobConstructor, RetriesExhaustedHandler, RetryInHandler } from "./job.js";
 import type { Config } from "./config.js";
 import type { JobPayload } from "./types.js";
+import { compressBacktrace, extractBacktrace } from "./backtrace.js";
+import { hostname } from "node:os";
 
 const FETCH_TIMEOUT_SECONDS = 2;
 
@@ -105,17 +107,26 @@ export class Runner {
   private stopping = false;
   private workers: Array<Promise<void>> = [];
   private schedulerHandle?: NodeJS.Timeout;
+  private heartbeatHandle?: NodeJS.Timeout;
   private queueStrategy: QueueStrategy;
   private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
   private workerRedis: Array<Awaited<ReturnType<Config["getRedisClient"]>>> = [];
+  private identity: string;
+  private startedAt: number;
+  private workState = new Map<string, { queue: string; payload: string; runAt: number }>();
+  private inProgress = new Map<string, { queue: string; payload: string }>();
 
   constructor(config: Config) {
     this.config = config;
     this.queueStrategy = new QueueStrategy(config.queues);
+    this.startedAt = Date.now() / 1000;
+    this.identity = `${hostname()}:${process.pid}`;
   }
 
   async start(): Promise<void> {
     this.baseRedis = await this.config.getRedisClient();
+    await this.heartbeat();
+    this.startHeartbeat();
     this.startScheduler();
     for (let i = 0; i < this.config.concurrency; i += 1) {
       const client = this.baseRedis.duplicate();
@@ -132,8 +143,15 @@ export class Runner {
   async stop(): Promise<void> {
     this.quieting = true;
     this.stopping = true;
+    this.stopHeartbeat();
     this.stopScheduler();
-    await Promise.all(this.workers);
+    const deadline = Date.now() + this.config.timeout * 1000;
+    await this.waitForDrain(deadline);
+    if (this.inProgress.size > 0) {
+      await this.requeueInProgress();
+    }
+    await this.waitForWorkers(deadline);
+    await this.clearHeartbeat();
     await Promise.all(
       this.workerRedis.map(async (client) => {
         if (client.isOpen) {
@@ -154,6 +172,141 @@ export class Runner {
     if (this.schedulerHandle) {
       clearInterval(this.schedulerHandle);
       this.schedulerHandle = undefined;
+    }
+  }
+
+  private async heartbeat(): Promise<void> {
+    if (this.stopping) {
+      return;
+    }
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    const now = Date.now() / 1000;
+    const info = this.processInfo();
+
+    const workKey = `${this.identity}:work`;
+    const workEntries: Record<string, string> = {};
+    for (const [key, value] of this.workState.entries()) {
+      workEntries[key] = dumpJson({
+        queue: value.queue,
+        payload: value.payload,
+        run_at: Math.floor(value.runAt / 1000),
+      });
+    }
+
+    try {
+      const rttUs = await this.checkRtt(redis);
+      const pipeline = redis.multi();
+      pipeline.unlink(workKey);
+      if (Object.keys(workEntries).length > 0) {
+        pipeline.hSet(workKey, workEntries);
+        pipeline.expire(workKey, 60);
+      }
+      pipeline.sAdd("processes", [this.identity]);
+      pipeline.hSet(this.identity, {
+        info: dumpJson(info),
+        busy: String(this.workState.size),
+        beat: String(now),
+        quiet: String(this.quieting),
+        rtt_us: String(rttUs),
+        rss: "0",
+      });
+      pipeline.expire(this.identity, 60);
+      await pipeline.exec();
+    } catch (error) {
+      this.config.logger.error(
+        () => `heartbeat: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private async clearHeartbeat(): Promise<void> {
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    try {
+      const pipeline = redis.multi();
+      pipeline.sRem("processes", [this.identity]);
+      pipeline.unlink(`${this.identity}:work`);
+      pipeline.unlink(this.identity);
+      await pipeline.exec();
+    } catch {
+      // best effort
+    }
+  }
+
+  private processInfo(): Record<string, unknown> {
+    return {
+      hostname: hostname(),
+      started_at: this.startedAt,
+      pid: process.pid,
+      tag: this.config.tag,
+      concurrency: this.config.concurrency,
+      queues: this.config.queueNames(),
+      labels: this.config.labels,
+      identity: this.identity,
+      embedded: false,
+    };
+  }
+
+  private async checkRtt(redis: Awaited<ReturnType<Config["getRedisClient"]>>): Promise<number> {
+    const start = process.hrtime.bigint();
+    await redis.ping();
+    const end = process.hrtime.bigint();
+    return Number((end - start) / 1000n);
+  }
+
+  private async waitForDrain(deadline: number): Promise<void> {
+    while (this.inProgress.size > 0 && Date.now() < deadline) {
+      await sleep(50);
+    }
+  }
+
+  private async waitForWorkers(deadline: number): Promise<void> {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return;
+    }
+    await Promise.race([Promise.all(this.workers), sleep(remaining)]);
+  }
+
+  private async requeueInProgress(): Promise<void> {
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    const grouped = new Map<string, string[]>();
+    for (const entry of this.inProgress.values()) {
+      const list = grouped.get(entry.queue) ?? [];
+      list.push(entry.payload);
+      grouped.set(entry.queue, list);
+    }
+    if (grouped.size === 0) {
+      return;
+    }
+    const pipeline = redis.multi();
+    for (const [queue, payloads] of grouped.entries()) {
+      pipeline.rPush(`queue:${queue}`, payloads);
+    }
+    await pipeline.exec();
+  }
+
+  private async sendRawToMorgue(payload: string): Promise<void> {
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    const now = Date.now() / 1000;
+    const cutoff = now - this.config.deadTimeoutInSeconds;
+    const pipeline = redis.multi();
+    pipeline.zAdd("dead", [{ score: now, value: payload }]);
+    pipeline.zRemRangeByScore("dead", 0, cutoff);
+    pipeline.zRemRangeByRank("dead", 0, -this.config.deadMaxJobs);
+    await pipeline.exec();
+  }
+
+  private startHeartbeat(): void {
+    const intervalMs = this.config.heartbeatInterval * 1000;
+    this.heartbeatHandle = setInterval(() => {
+      void this.heartbeat();
+    }, intervalMs);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatHandle) {
+      clearInterval(this.heartbeatHandle);
+      this.heartbeatHandle = undefined;
     }
   }
 
@@ -198,14 +351,24 @@ export class Runner {
         continue;
       }
 
-      await this.processJob(unit.queue, unit.payload);
+      const workerId = `worker-${index}`;
+      this.inProgress.set(workerId, { queue: unit.queue, payload: unit.payload });
+      this.workState.set(workerId, { queue: unit.queue, payload: unit.payload, runAt: Date.now() });
+      void this.heartbeat();
+      try {
+        await this.processJob(unit.queue, unit.payload);
+      } finally {
+        this.inProgress.delete(workerId);
+        this.workState.delete(workerId);
+        void this.heartbeat();
+      }
     }
   }
 
   private async fetchWork(index: number): Promise<
     | {
         queue: string;
-        payload: JobPayload;
+        payload: string;
       }
     | null
   > {
@@ -227,14 +390,25 @@ export class Runner {
     }
 
     const [queueKey, job] = result;
-    const payload = loadJson(job) as JobPayload;
     const queue = queueKey.startsWith("queue:") ? queueKey.slice(6) : queueKey;
 
-    return { queue, payload };
+    return { queue, payload: job };
   }
 
-  private async processJob(queue: string, payload: JobPayload): Promise<void> {
+  private async processJob(queue: string, payloadRaw: string): Promise<void> {
     const redis = await this.config.getRedisClient();
+    let payload: JobPayload;
+    try {
+      payload = loadJson(payloadRaw) as JobPayload;
+    } catch (error) {
+      await this.sendRawToMorgue(payloadRaw);
+      await redis.incr("stat:failed");
+      this.config.logger.error(
+        () => `Invalid JSON for job on ${queue}: ${String(error)}`
+      );
+      return;
+    }
+
     const className = String(payload.class);
     const klass = resolveJob(className) as JobConstructor | undefined;
 
@@ -254,7 +428,7 @@ export class Runner {
       let executed = false;
       await this.config.serverMiddleware.invoke(job, payload, queue, async () => {
         executed = true;
-        await job.perform(...(payload.args ?? []));
+      await job.perform(...(payload.args ?? []));
       });
       if (executed) {
         await redis.incr("stat:processed");
@@ -273,7 +447,7 @@ export class Runner {
   ): Promise<void> {
     const redis = await this.config.getRedisClient();
     const className = String(payload.class);
-    const message = error.message ?? `Unknown error: ${String(error)}`;
+    const message = this.safeErrorMessage(error);
     this.config.logger.error(
       () => `Job ${className} failed on ${queue}: ${message}`
     );
@@ -308,6 +482,15 @@ export class Runner {
     } else {
       payload.retry_count = 0;
       payload.failed_at = nowMs;
+    }
+
+    if (payload.backtrace) {
+      const rawLines = extractBacktrace(error);
+      const cleaned = this.config.backtraceCleaner(rawLines);
+      const limit =
+        payload.backtrace === true ? cleaned.length : Number(payload.backtrace);
+      const lines = cleaned.slice(0, Math.max(limit, 0));
+      payload.error_backtrace = compressBacktrace(lines);
     }
 
     const retryFor = payload.retry_for;
@@ -451,6 +634,14 @@ export class Runner {
           () => `Error calling error handler: ${err.message}`
         );
       }
+    }
+  }
+
+  private safeErrorMessage(error: Error): string {
+    try {
+      return String(error.message ?? "Unknown error");
+    } catch {
+      return "!!! ERROR MESSAGE THREW AN ERROR !!!";
     }
   }
 }

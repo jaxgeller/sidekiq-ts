@@ -28,9 +28,13 @@ export class Config {
   timeout: number;
   pollIntervalAverage: number | null;
   averageScheduledPollInterval: number;
+  heartbeatInterval: number;
+  tag: string;
+  labels: string[];
   maxRetries: number;
   deadMaxJobs: number;
   deadTimeoutInSeconds: number;
+  backtraceCleaner: (backtrace: string[]) => string[];
   strictArgs: StrictArgsMode;
   errorHandlers: ErrorHandler[];
   deathHandlers: DeathHandler[];
@@ -57,10 +61,14 @@ export class Config {
     this.pollIntervalAverage = options.pollIntervalAverage ?? null;
     this.averageScheduledPollInterval =
       options.averageScheduledPollInterval ?? 5;
+    this.heartbeatInterval = options.heartbeatInterval ?? 10;
+    this.tag = options.tag ?? "";
+    this.labels = options.labels ?? [];
     this.maxRetries = options.maxRetries ?? 25;
     this.deadMaxJobs = options.deadMaxJobs ?? 10_000;
     this.deadTimeoutInSeconds =
       options.deadTimeoutInSeconds ?? 180 * 24 * 60 * 60;
+    this.backtraceCleaner = options.backtraceCleaner ?? ((backtrace) => backtrace);
     this.strictArgs = options.strictArgs ?? "raise";
     this.errorHandlers = options.errorHandlers ?? [];
     this.deathHandlers = options.deathHandlers ?? [];
@@ -91,5 +99,18 @@ export class Config {
     if (this.redisClient && this.redisClient.isOpen) {
       await this.redisClient.quit();
     }
+  }
+
+  queueNames(): string[] {
+    const names = new Set<string>();
+    for (const entry of this.queues) {
+      if (Array.isArray(entry)) {
+        names.add(entry[0]);
+      } else {
+        const [name] = entry.split(",", 1);
+        names.add(name);
+      }
+    }
+    return Array.from(names);
   }
 }

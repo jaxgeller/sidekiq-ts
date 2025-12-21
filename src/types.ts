@@ -31,9 +31,13 @@ export interface ConfigOptions {
   timeout?: number;
   pollIntervalAverage?: number | null;
   averageScheduledPollInterval?: number;
+  heartbeatInterval?: number;
+  tag?: string;
+  labels?: string[];
   maxRetries?: number;
   deadMaxJobs?: number;
   deadTimeoutInSeconds?: number;
+  backtraceCleaner?: (backtrace: string[]) => string[];
   strictArgs?: StrictArgsMode;
   errorHandlers?: ErrorHandler[];
   deathHandlers?: DeathHandler[];
@@ -86,7 +90,7 @@ export interface JobPayload extends JobOptions {
   failed_at?: number;
   retried_at?: number;
   retry_count?: number;
-  error_backtrace?: string[];
+  error_backtrace?: string;
   discarded_at?: number;
   [key: string]: unknown;
 }
