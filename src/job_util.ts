@@ -5,6 +5,7 @@ import type {
   JobPayload,
   StrictArgsMode,
 } from "./types.js";
+import { registerJob } from "./registry.js";
 
 export const TRANSIENT_ATTRIBUTES: string[] = [];
 
@@ -100,6 +101,9 @@ export const normalizeItem = (
   });
 
   merged.jid = merged.jid ?? generateJid();
+  if (typeof merged.class === "function") {
+    registerJob(merged.class);
+  }
   merged.class = className(merged.class);
   if (merged.wrapped) {
     merged.wrapped = className(merged.wrapped);

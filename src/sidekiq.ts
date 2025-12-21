@@ -1,5 +1,6 @@
 import { Config } from "./config.js";
 import { dumpJson, loadJson } from "./json.js";
+import { registerJob, type RegisteredJobClass } from "./registry.js";
 import type { JobOptions, StrictArgsMode } from "./types.js";
 
 export class Sidekiq {
@@ -68,5 +69,20 @@ export class Sidekiq {
   static async redis<T>(fn: (client: Awaited<ReturnType<Config["getRedisClient"]>>) => Promise<T>): Promise<T> {
     const client = await this.config.getRedisClient();
     return fn(client);
+  }
+
+  static registerJob(klass: RegisteredJobClass): void {
+    registerJob(klass);
+  }
+
+  static async run({ config }: { config?: Config } = {}) {
+    if (config) {
+      this.config = config;
+    }
+    this.markServerMode();
+    const { Runner } = await import("./runner.js");
+    const runner = new Runner(this.config);
+    await runner.start();
+    return runner;
   }
 }

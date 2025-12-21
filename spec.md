@@ -31,6 +31,7 @@ import {
 
 ### Job classes (class-based only)
 Jobs are classes with a `perform(...args)` method. They extend `Job` which adds Sidekiq-like class methods. Function-based jobs are out of scope.
+Jobs should be registered with `Sidekiq.registerJob` in worker processes so the runner can resolve class names from Redis.
 
 ```ts
 class HardJob extends Job<[number, number]> {
@@ -135,6 +136,7 @@ class MyServerMiddleware {
 A Node-side worker which polls Redis and executes jobs.
 
 ```ts
+Sidekiq.registerJob(HardJob);
 const runner = await Sidekiq.run();
 // later
 await runner.quiet();
@@ -143,6 +145,7 @@ await runner.stop();
 
 Runner API
 - `Sidekiq.run({ config? }): Promise<Runner>`
+- `Sidekiq.registerJob(JobClass): void`
 - `Runner.quiet()` (stop fetching new jobs)
 - `Runner.stop()` (graceful shutdown)
 - `Runner.restart()` (optional)
