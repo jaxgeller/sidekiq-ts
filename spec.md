@@ -237,7 +237,7 @@ Phase 3: Middleware + Testing utilities (done)
 - Testing fake/inline modes and in-memory queues.
 - Tests for middleware and testing mode behavior.
 
-Phase 4: Data API + CLI (in progress)
+Phase 4: Data API + CLI (done)
 - Stats/Queue/Sets API (done).
 - CLI runner with JSON config file support.
 - Tests for data API and CLI config parsing.
