@@ -111,6 +111,7 @@ JSON config (CLI)
   "redis": { "url": "redis://localhost:6379/0" },
   "concurrency": 10,
   "queues": ["critical", "default", "low"],
+  "heartbeatInterval": 10,
   "maxRetries": 25,
   "deadMaxJobs": 10000,
   "deadTimeoutInSeconds": 15552000,
@@ -127,6 +128,9 @@ Config surface (initial)
 - `heartbeatInterval: number` (seconds between process heartbeats)
 - `tag: string`
 - `labels: string[]`
+- `skipDefaultJobLogging: boolean`
+- `loggedJobAttributes: string[]`
+- `profiler: (payload, fn) => Promise<void>`
 - `errorHandlers: Array<(err, ctx) => void>`
 - `deathHandlers: Array<(job, err) => void>`
 - `lifecycleEvents: { startup, quiet, shutdown, heartbeat }`
@@ -158,6 +162,7 @@ class MyServerMiddleware {
 ### Server runner
 A Node-side worker which polls Redis and executes jobs.
 Runner maintains process heartbeats and requeues in-flight jobs on forced shutdown.
+Runner supports job logging hooks and optional profiling for jobs with `profile` set.
 
 ```ts
 Sidekiq.registerJob(HardJob);
@@ -196,10 +201,11 @@ Testing API
 - `Queues` helper for per-queue introspection
 
 ### Data API
-- `Stats` (processed, failed, enqueued, queue sizes, latency)
-- `Queue` (list/enumerate jobs in a queue)
+- `Stats` (processed, failed, enqueued, queue sizes, latency, reset)
+- `StatsHistory` (per-day processed/failed counts)
+- `Queue` (list/enumerate jobs in a queue, latency)
 - `ScheduledSet`, `RetrySet`, `DeadSet` (ZSET-based)
-- `ProcessSet`/`Workers` (server process info and active work)
+- `ProcessSet`/`Workers` (server process info and active work, cleanup)
 
 ## Redis schema compatibility
 - Match Sidekiq's Redis schema and payloads exactly (key names, structures, timestamps, stats).
@@ -248,7 +254,7 @@ Phase 4: Data API + CLI (done)
 - CLI runner with JSON config file support.
 - Tests for data API and CLI config parsing.
 
-Phase 5: Operational parity (next)
+Phase 5: Operational parity (done)
 - Process cleanup and heartbeat robustness (stale process detection, cleanup cadence).
 - Enhanced process/worker stats (RSS, RTT warnings).
 - Job logging/profiling hooks.
