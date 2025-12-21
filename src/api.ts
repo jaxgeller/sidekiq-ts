@@ -1,0 +1,195 @@
+import { Sidekiq } from "./sidekiq.js";
+import { loadJson } from "./json.js";
+import type { Config } from "./config.js";
+import type { JobPayload } from "./types.js";
+import type { RedisClient } from "./redis.js";
+
+export interface SortedEntry {
+  score: number;
+  payload: JobPayload;
+}
+
+const getRedis = async (config?: Config): Promise<RedisClient> =>
+  (config ?? Sidekiq.defaultConfiguration).getRedisClient();
+
+export class Stats {
+  private config?: Config;
+
+  constructor(config?: Config) {
+    this.config = config;
+  }
+
+  async processed(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.get("stat:processed")) || 0;
+  }
+
+  async failed(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.get("stat:failed")) || 0;
+  }
+
+  async scheduledSize(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sendCommand(["ZCARD", "schedule"])) || 0;
+  }
+
+  async retrySize(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sendCommand(["ZCARD", "retry"])) || 0;
+  }
+
+  async deadSize(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sendCommand(["ZCARD", "dead"])) || 0;
+  }
+
+  async processesSize(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sendCommand(["SCARD", "processes"])) || 0;
+  }
+
+  async enqueued(): Promise<number> {
+    const redis = await getRedis(this.config);
+    const queues = await redis.sMembers("queues");
+    if (queues.length === 0) {
+      return 0;
+    }
+    const pipeline = redis.multi();
+    queues.forEach((queue) => {
+      pipeline.lLen(`queue:${queue}`);
+    });
+    const result = await pipeline.exec();
+    return (result ?? []).reduce((sum, value) => sum + Number(value ?? 0), 0);
+  }
+
+  async defaultQueueLatency(): Promise<number> {
+    const redis = await getRedis(this.config);
+    const entry = (await redis.sendCommand([
+      "LINDEX",
+      "queue:default",
+      "-1",
+    ])) as string | null;
+
+    if (!entry) {
+      return 0;
+    }
+
+    let payload: JobPayload;
+    try {
+      payload = loadJson(entry) as JobPayload;
+    } catch {
+      return 0;
+    }
+
+    const enqueuedAt = Number(payload.enqueued_at);
+    if (!Number.isFinite(enqueuedAt) || enqueuedAt <= 0) {
+      return 0;
+    }
+
+    const nowMs = Date.now();
+    const diffMs = enqueuedAt > 1_000_000_000_000 ? nowMs - enqueuedAt : nowMs - enqueuedAt * 1000;
+    return diffMs / 1000;
+  }
+
+  async queues(): Promise<Record<string, number>> {
+    const redis = await getRedis(this.config);
+    const queues = await redis.sMembers("queues");
+    if (queues.length === 0) {
+      return {};
+    }
+    const pipeline = redis.multi();
+    queues.forEach((queue) => {
+      pipeline.lLen(`queue:${queue}`);
+    });
+    const result = await pipeline.exec();
+    const pairs: Array<[string, number]> = queues.map((queue, index) => [
+      queue,
+      Number(result?.[index] ?? 0),
+    ]);
+    pairs.sort((a, b) => b[1] - a[1]);
+    return Object.fromEntries(pairs);
+  }
+}
+
+export class Queue {
+  private config?: Config;
+  readonly name: string;
+
+  constructor(name: string = "default", config?: Config) {
+    this.name = name;
+    this.config = config;
+  }
+
+  async size(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.lLen(`queue:${this.name}`));
+  }
+
+  async clear(): Promise<void> {
+    const redis = await getRedis(this.config);
+    await redis.del(`queue:${this.name}`);
+  }
+
+  async entries(start = 0, stop = -1): Promise<JobPayload[]> {
+    const redis = await getRedis(this.config);
+    const range = await redis.lRange(`queue:${this.name}`, start, stop);
+    return range.map((entry) => loadJson(entry) as JobPayload);
+  }
+}
+
+class SortedSet {
+  protected config?: Config;
+  protected key: string;
+
+  constructor(key: string, config?: Config) {
+    this.key = key;
+    this.config = config;
+  }
+
+  async size(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sendCommand(["ZCARD", this.key]));
+  }
+
+  async clear(): Promise<void> {
+    const redis = await getRedis(this.config);
+    await redis.sendCommand(["ZREMRANGEBYRANK", this.key, "0", "-1"]);
+  }
+
+  async entries(start = 0, stop = -1): Promise<SortedEntry[]> {
+    const redis = await getRedis(this.config);
+    const response = (await redis.sendCommand([
+      "ZRANGE",
+      this.key,
+      String(start),
+      String(stop),
+      "WITHSCORES",
+    ])) as string[];
+    const entries: SortedEntry[] = [];
+    for (let i = 0; i < response.length; i += 2) {
+      const payload = loadJson(response[i]) as JobPayload;
+      const score = Number(response[i + 1]);
+      entries.push({ score, payload });
+    }
+    return entries;
+  }
+}
+
+export class ScheduledSet extends SortedSet {
+  constructor(config?: Config) {
+    super("schedule", config);
+  }
+}
+
+export class RetrySet extends SortedSet {
+  constructor(config?: Config) {
+    super("retry", config);
+  }
+}
+
+export class DeadSet extends SortedSet {
+  constructor(config?: Config) {
+    super("dead", config);
+  }
+}

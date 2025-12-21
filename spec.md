@@ -219,13 +219,13 @@ Phase 2: Scheduling + retries (done)
 - Dead set handling and death handlers.
 - Tests for retry behavior and scheduled jobs.
 
-Phase 3: Middleware + Testing utilities (in progress)
+Phase 3: Middleware + Testing utilities (done)
 - Client/server middleware chains.
 - Testing fake/inline modes and in-memory queues.
 - Tests for middleware and testing mode behavior.
 
-Phase 4: Data API + CLI
-- Stats/Queue/Sets API.
+Phase 4: Data API + CLI (in progress)
+- Stats/Queue/Sets API (done).
 - CLI runner with JSON config file support.
 - Tests for data API and CLI config parsing.
 
