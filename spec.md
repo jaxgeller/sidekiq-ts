@@ -85,6 +85,19 @@ Default job logging injects context for each job:
 - Any `loggedJobAttributes` present in the payload
 - `elapsed` for `done`/`fail` logs
 
+Logger formatters
+- `SidekiqLogger` supports formatters that mirror Ruby's defaults.
+- `Formatters.Pretty` (default unless `DYNO` is set), `Formatters.WithoutTimestamp`, `Formatters.Plain`, `Formatters.JSON`.
+
+```ts
+import { SidekiqLogger, Formatters } from "sidekiq-ts";
+
+const logger = new SidekiqLogger(console, new Formatters.JSON());
+Sidekiq.configureServer((config) => {
+  config.logger = logger;
+});
+```
+
 ### Client
 Responsible for pushing jobs to Redis.
 

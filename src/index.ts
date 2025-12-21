@@ -16,5 +16,6 @@ export {
 } from "./api.js";
 export { loadConfigFile } from "./config_loader.js";
 export { DefaultJobLogger } from "./job_logger.js";
+export { SidekiqLogger, Formatters, createLogger } from "./logger.js";
 export { Context } from "./context.js";
 export type * from "./types.js";
