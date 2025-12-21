@@ -51,6 +51,8 @@ await HardJob.set({ queue: "low" }).performAsync(3, 4);
 - `static sidekiqOptions: JobOptions` (default job options)
 - `static setSidekiqOptions(opts: JobOptions): void`
 - `static queueAs(name: string): void`
+- `static retryIn(fn): void` (custom retry delay or discard/kill)
+- `static retriesExhausted(fn): void` (hook for exhausted retries)
 - `static set(opts: JobSetterOptions): JobSetter`
 - `static performAsync(...args): Promise<string | null>`
 - `static performIn(secondsOrTimestamp, ...args): Promise<string | null>`
@@ -114,6 +116,9 @@ Config surface (initial)
 - `lifecycleEvents: { startup, quiet, shutdown, heartbeat }`
 - `logger`
 - `strictArgs: "raise" | "warn" | "none"`
+- `maxRetries: number` (default 25)
+- `deadMaxJobs: number` (default 10000)
+- `deadTimeoutInSeconds: number` (default 180 days)
 
 ### Middleware
 Client and server middleware chains mirror Sidekiq's `call` pattern.
@@ -200,15 +205,15 @@ Testing API
 
 ## Implementation Plan (Phased)
 
-Phase 1: Core enqueueing + execution
+Phase 1: Core enqueueing + execution (done)
 - Implement config, Redis connection, logger, and JSON helpers.
 - Implement `Job` base class and `Client.push`/`pushBulk`.
 - Implement basic runner with concurrency and queue polling.
 - Add strict args validation and minimal retry handling.
-- Add tests with `node --test` for enqueue/perform and scheduling.
+- Add tests with Vitest for enqueue/perform and scheduling.
 
-Phase 2: Scheduling + retries
-- Scheduled poller to move due jobs from `schedule` to queues.
+Phase 2: Scheduling + retries (in progress)
+- Scheduled poller to move due jobs from `schedule` and `retry` to queues.
 - Retry set handling and exponential backoff.
 - Dead set handling and death handlers.
 - Tests for retry behavior and scheduled jobs.

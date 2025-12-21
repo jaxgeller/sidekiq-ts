@@ -63,8 +63,11 @@ const normalizedHash = (
   itemClass: JobPayload["class"],
   defaultOptions: JobOptions
 ): JobOptions => {
-  if (typeof itemClass === "function" && itemClass.getSidekiqOptions) {
-    return itemClass.getSidekiqOptions();
+  if (typeof itemClass === "function") {
+    const klass = itemClass as JobClassLike;
+    if (klass.getSidekiqOptions) {
+      return klass.getSidekiqOptions();
+    }
   }
   return defaultOptions;
 };
@@ -76,15 +79,16 @@ export const normalizeItem = (
   validateItem(item);
 
   let defaults = normalizedHash(item.class, defaultOptions);
-  if (
-    item.wrapped &&
-    typeof item.wrapped !== "string" &&
-    item.wrapped.getSidekiqOptions
-  ) {
+  if (item.wrapped && typeof item.wrapped !== "string") {
+    const wrapped = item.wrapped as JobClassLike;
+    if (!wrapped.getSidekiqOptions) {
+      // fall through without overriding defaults
+    } else {
     defaults = {
       ...defaults,
-      ...item.wrapped.getSidekiqOptions(),
+      ...wrapped.getSidekiqOptions(),
     };
+    }
   }
 
   const merged: JobPayload = {

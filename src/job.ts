@@ -9,9 +9,13 @@ export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   new (): Job<TArgs>;
   name: string;
   sidekiqOptions?: JobOptions;
+  sidekiqRetryIn?: RetryInHandler;
+  sidekiqRetriesExhausted?: RetriesExhaustedHandler;
   getSidekiqOptions(): JobOptions;
   setSidekiqOptions(options: JobOptions): void;
   queueAs(queue: string): void;
+  retryIn(handler: RetryInHandler): void;
+  retriesExhausted(handler: RetriesExhaustedHandler): void;
   set(options: JobSetterOptions): JobSetter<TArgs>;
   performAsync(...args: TArgs): Promise<string | null>;
   performIn(interval: number, ...args: TArgs): Promise<string | null>;
@@ -46,6 +50,14 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
 
   static queueAs(this: JobConstructor, queue: string): void {
     this.setSidekiqOptions({ queue });
+  }
+
+  static retryIn(this: JobConstructor, handler: RetryInHandler): void {
+    this.sidekiqRetryIn = handler;
+  }
+
+  static retriesExhausted(this: JobConstructor, handler: RetriesExhaustedHandler): void {
+    this.sidekiqRetriesExhausted = handler;
   }
 
   static set<TArgs extends unknown[]>(
@@ -111,6 +123,17 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
 
   abstract perform(...args: TArgs): Promise<void> | void;
 }
+
+export type RetryInHandler = (
+  count: number,
+  error: Error,
+  payload: JobPayload
+) => number | "discard" | "kill" | "default";
+
+export type RetriesExhaustedHandler = (
+  payload: JobPayload,
+  error: Error
+) => "discard" | void;
 
 export class JobSetter<TArgs extends unknown[] = unknown[]> {
   private klass: JobConstructor<TArgs>;

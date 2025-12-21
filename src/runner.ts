@@ -1,6 +1,7 @@
-import { loadJson } from "./json.js";
+import { dumpJson, loadJson } from "./json.js";
 import { Client } from "./client.js";
 import { resolveJob } from "./registry.js";
+import type { JobConstructor, RetriesExhaustedHandler, RetryInHandler } from "./job.js";
 import type { Config } from "./config.js";
 import type { JobPayload } from "./types.js";
 
@@ -105,6 +106,8 @@ export class Runner {
   private workers: Array<Promise<void>> = [];
   private schedulerHandle?: NodeJS.Timeout;
   private queueStrategy: QueueStrategy;
+  private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
+  private workerRedis: Array<Awaited<ReturnType<Config["getRedisClient"]>>> = [];
 
   constructor(config: Config) {
     this.config = config;
@@ -112,8 +115,12 @@ export class Runner {
   }
 
   async start(): Promise<void> {
+    this.baseRedis = await this.config.getRedisClient();
     this.startScheduler();
     for (let i = 0; i < this.config.concurrency; i += 1) {
+      const client = this.baseRedis.duplicate();
+      await client.connect();
+      this.workerRedis[i] = client;
       this.workers.push(this.workLoop(i));
     }
   }
@@ -127,6 +134,13 @@ export class Runner {
     this.stopping = true;
     this.stopScheduler();
     await Promise.all(this.workers);
+    await Promise.all(
+      this.workerRedis.map(async (client) => {
+        if (client.isOpen) {
+          await client.quit();
+        }
+      })
+    );
   }
 
   private startScheduler(): void {
@@ -147,36 +161,39 @@ export class Runner {
     if (this.stopping) {
       return;
     }
-    const redis = await this.config.getRedisClient();
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
     const client = new Client({ config: this.config });
     const now = Date.now() / 1000;
+    const sets = ["schedule", "retry"];
 
-    while (!this.stopping) {
-      const job = (await redis.sendCommand([
-        "EVAL",
-        LUA_ZPOPBYSCORE,
-        "1",
-        "schedule",
-        String(now),
-      ])) as string | null;
+    for (const set of sets) {
+      while (!this.stopping) {
+        const job = (await redis.sendCommand([
+          "EVAL",
+          LUA_ZPOPBYSCORE,
+          "1",
+          set,
+          String(now),
+        ])) as string | null;
 
-      if (!job) {
-        break;
+        if (!job) {
+          break;
+        }
+
+        const payload = loadJson(job) as JobPayload;
+        await client.push(payload);
       }
-
-      const payload = loadJson(job) as JobPayload;
-      await client.push(payload);
     }
   }
 
-  private async workLoop(_index: number): Promise<void> {
+  private async workLoop(index: number): Promise<void> {
     while (!this.stopping) {
       if (this.quieting) {
         await sleep(50);
         continue;
       }
 
-      const unit = await this.fetchWork();
+      const unit = await this.fetchWork(index);
       if (!unit) {
         continue;
       }
@@ -185,7 +202,7 @@ export class Runner {
     }
   }
 
-  private async fetchWork(): Promise<
+  private async fetchWork(index: number): Promise<
     | {
         queue: string;
         payload: JobPayload;
@@ -198,7 +215,7 @@ export class Runner {
       return null;
     }
 
-    const redis = await this.config.getRedisClient();
+    const redis = this.workerRedis[index] ?? (await this.config.getRedisClient());
     const result = (await redis.sendCommand([
       "BRPOP",
       ...queueKeys,
@@ -218,7 +235,7 @@ export class Runner {
   private async processJob(queue: string, payload: JobPayload): Promise<void> {
     const redis = await this.config.getRedisClient();
     const className = String(payload.class);
-    const klass = resolveJob(className);
+    const klass = resolveJob(className) as JobConstructor | undefined;
 
     if (!klass) {
       this.config.logger.error(
@@ -236,12 +253,197 @@ export class Runner {
       await job.perform(...(payload.args ?? []));
       await redis.incr("stat:processed");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : `Unknown error: ${String(error)}`;
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.handleFailure(queue, payload, klass, err);
+    }
+  }
+
+  private async handleFailure(
+    queue: string,
+    payload: JobPayload,
+    klass: JobConstructor,
+    error: Error
+  ): Promise<void> {
+    const redis = await this.config.getRedisClient();
+    const className = String(payload.class);
+    const message = error.message ?? `Unknown error: ${String(error)}`;
+    this.config.logger.error(
+      () => `Job ${className} failed on ${queue}: ${message}`
+    );
+
+    await redis.incr("stat:failed");
+
+    const retryOption =
+      payload.retry !== undefined
+        ? payload.retry
+        : klass.getSidekiqOptions().retry;
+
+    const retryDisabled =
+      retryOption === false || retryOption === null || retryOption === undefined;
+    if (retryDisabled) {
+      await this.runDeathHandlers(payload, error);
+      await this.runErrorHandlers(payload, error, queue);
+      return;
+    }
+
+    const maxRetries =
+      typeof retryOption === "number" ? retryOption : this.config.maxRetries;
+
+    const nowMs = Date.now();
+    const nowSeconds = nowMs / 1000;
+    payload.queue = payload.retry_queue ?? payload.queue ?? queue.replace("queue:", "");
+    payload.error_message = message.slice(0, 10_000);
+    payload.error_class = error.name;
+
+    if (payload.retry_count !== undefined) {
+      payload.retry_count += 1;
+      payload.retried_at = nowMs;
+    } else {
+      payload.retry_count = 0;
+      payload.failed_at = nowMs;
+    }
+
+    const retryFor = payload.retry_for;
+    if (
+      typeof retryFor === "number" &&
+      payload.failed_at !== undefined
+    ) {
+      const deadline = payload.failed_at / 1000 + retryFor;
+      if (deadline < nowSeconds) {
+        await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+        await this.runErrorHandlers(payload, error, queue);
+        return;
+      }
+    } else if (payload.retry_count >= maxRetries) {
+      await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+      await this.runErrorHandlers(payload, error, queue);
+      return;
+    }
+
+    const retryIn = klass.sidekiqRetryIn;
+    const delayResult = retryIn
+      ? this.safeRetryIn(retryIn, payload.retry_count, error, payload)
+      : "default";
+    if (delayResult === "discard") {
+      payload.discarded_at = nowMs;
+      await this.runDeathHandlers(payload, error);
+      return;
+    }
+    if (delayResult === "kill") {
+      await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+      await this.runErrorHandlers(payload, error, queue);
+      return;
+    }
+
+    const delaySeconds =
+      typeof delayResult === "number"
+        ? delayResult
+        : Math.pow(payload.retry_count, 4) + 15;
+    const jitter = Math.random() * 10 * (payload.retry_count + 1);
+    const retryAt = nowSeconds + delaySeconds + jitter;
+
+    await redis.zAdd("retry", [{ score: retryAt, value: dumpJson(payload) }]);
+    await this.runErrorHandlers(payload, error, queue);
+  }
+
+  private safeRetryIn(
+    handler: RetryInHandler,
+    count: number,
+    error: Error,
+    payload: JobPayload
+  ): number | "discard" | "kill" | "default" {
+    try {
+      return handler(count, error, payload) ?? "default";
+    } catch (handlerError) {
+      const err =
+        handlerError instanceof Error
+          ? handlerError
+          : new Error(String(handlerError));
       this.config.logger.error(
-        () => `Job ${className} failed on ${queue}: ${message}`
+        () => `Error in retryIn handler: ${err.message}`
       );
-      await redis.incr("stat:failed");
+      return "default";
+    }
+  }
+
+  private async retriesExhausted(
+    payload: JobPayload,
+    error: Error,
+    handler?: RetriesExhaustedHandler
+  ): Promise<void> {
+    let handlerResult: "discard" | void = undefined;
+    if (handler) {
+      try {
+        handlerResult = handler(payload, error);
+      } catch (handlerError) {
+        const err =
+          handlerError instanceof Error
+            ? handlerError
+            : new Error(String(handlerError));
+        this.config.logger.error(
+          () => `Error calling retriesExhausted handler: ${err.message}`
+        );
+      }
+    }
+
+    const discard = payload.dead === false || handlerResult === "discard";
+    if (discard) {
+      payload.discarded_at = Date.now();
+    } else {
+      await this.sendToMorgue(payload);
+    }
+
+    await this.runDeathHandlers(payload, error);
+  }
+
+  private async sendToMorgue(payload: JobPayload): Promise<void> {
+    const redis = await this.config.getRedisClient();
+    const nowSeconds = Date.now() / 1000;
+    const cutoff = nowSeconds - this.config.deadTimeoutInSeconds;
+
+    const pipeline = redis.multi();
+    pipeline.zAdd("dead", [{ score: nowSeconds, value: dumpJson(payload) }]);
+    pipeline.zRemRangeByScore("dead", 0, cutoff);
+    pipeline.zRemRangeByRank("dead", 0, -this.config.deadMaxJobs);
+    await pipeline.exec();
+  }
+
+  private async runDeathHandlers(payload: JobPayload, error: Error): Promise<void> {
+    for (const handler of this.config.deathHandlers) {
+      try {
+        await handler(payload, error);
+      } catch (handlerError) {
+        const err =
+          handlerError instanceof Error
+            ? handlerError
+            : new Error(String(handlerError));
+        this.config.logger.error(
+          () => `Error calling death handler: ${err.message}`
+        );
+      }
+    }
+  }
+
+  private async runErrorHandlers(
+    payload: JobPayload,
+    error: Error,
+    queue: string
+  ): Promise<void> {
+    if (this.config.errorHandlers.length === 0) {
+      return;
+    }
+    for (const handler of this.config.errorHandlers) {
+      try {
+        await handler(error, { job: payload, queue });
+      } catch (handlerError) {
+        const err =
+          handlerError instanceof Error
+            ? handlerError
+            : new Error(String(handlerError));
+        this.config.logger.error(
+          () => `Error calling error handler: ${err.message}`
+        );
+      }
     }
   }
 }

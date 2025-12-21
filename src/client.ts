@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { RedisClientType } from "redis";
+import type { RedisClient } from "./redis.js";
 import { Sidekiq } from "./sidekiq.js";
 import { dumpJson } from "./json.js";
 import {
@@ -16,18 +16,18 @@ import type {
 } from "./types.js";
 import type { Config } from "./config.js";
 
-const redisContext = new AsyncLocalStorage<RedisClientType>();
+const redisContext = new AsyncLocalStorage<RedisClient>();
 
 export class Client {
   private config: Config;
-  private redisClient?: RedisClientType;
+  private redisClient?: RedisClient;
 
-  constructor({ config, redis }: { config?: Config; redis?: RedisClientType } = {}) {
+  constructor({ config, redis }: { config?: Config; redis?: RedisClient } = {}) {
     this.config = config ?? Sidekiq.defaultConfiguration;
     this.redisClient = redis;
   }
 
-  private async getRedis(): Promise<RedisClientType> {
+  private async getRedis(): Promise<RedisClient> {
     return (
       this.redisClient ??
       redisContext.getStore() ??
@@ -130,13 +130,13 @@ export class Client {
   async cancel(jid: string): Promise<boolean> {
     const redis = await this.getRedis();
     const key = `it-${jid}`;
-    const now = Math.floor(Date.now() / 1000);
+    const now = String(Math.floor(Date.now() / 1000));
     const pipeline = redis.multi();
     pipeline.hSetNX(key, "cancelled", now);
     pipeline.hGet(key, "cancelled");
     pipeline.expire(key, 86400, "NX");
     const result = await pipeline.exec();
-    const cancelled = result?.[1] as string | null | undefined;
+    const cancelled = result?.[1] as unknown as string | null | undefined;
     return Boolean(Number(cancelled));
   }
 
@@ -190,7 +190,7 @@ export class Client {
     return Client.enqueueToIn(queue, interval, klass, ...args);
   }
 
-  static async via<T>(redis: RedisClientType, fn: () => Promise<T>): Promise<T> {
+  static async via<T>(redis: RedisClient, fn: () => Promise<T>): Promise<T> {
     return redisContext.run(redis, fn);
   }
 

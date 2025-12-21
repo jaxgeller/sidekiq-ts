@@ -1,6 +1,7 @@
 import { createClient } from "redis";
-import type { RedisClientOptions, RedisClientType } from "redis";
+import type { RedisClientOptions } from "redis";
 import { createLogger, type Logger } from "./logger.js";
+import type { RedisClient } from "./redis.js";
 import type {
   ConfigOptions,
   LifecycleEvents,
@@ -25,13 +26,16 @@ export class Config {
   timeout: number;
   pollIntervalAverage: number | null;
   averageScheduledPollInterval: number;
+  maxRetries: number;
+  deadMaxJobs: number;
+  deadTimeoutInSeconds: number;
   strictArgs: StrictArgsMode;
   errorHandlers: ErrorHandler[];
   deathHandlers: DeathHandler[];
   lifecycleEvents: LifecycleEvents;
   logger: Logger;
   redisIdleTimeout: number | null;
-  private redisClient?: RedisClientType;
+  private redisClient?: RedisClient;
 
   constructor(options: ConfigOptions = {}) {
     this.redis = options.redis ?? {
@@ -43,6 +47,10 @@ export class Config {
     this.pollIntervalAverage = options.pollIntervalAverage ?? null;
     this.averageScheduledPollInterval =
       options.averageScheduledPollInterval ?? 5;
+    this.maxRetries = options.maxRetries ?? 25;
+    this.deadMaxJobs = options.deadMaxJobs ?? 10_000;
+    this.deadTimeoutInSeconds =
+      options.deadTimeoutInSeconds ?? 180 * 24 * 60 * 60;
     this.strictArgs = options.strictArgs ?? "raise";
     this.errorHandlers = options.errorHandlers ?? [];
     this.deathHandlers = options.deathHandlers ?? [];
@@ -54,12 +62,12 @@ export class Config {
     this.redisIdleTimeout = options.redisIdleTimeout ?? null;
   }
 
-  async getRedisClient(): Promise<RedisClientType> {
+  async getRedisClient(): Promise<RedisClient> {
     if (this.redisClient && this.redisClient.isOpen) {
       return this.redisClient;
     }
     const client = createClient(this.redis);
-    client.on("error", (error) => {
+    client.on("error", (error: Error) => {
       this.logger.error(() => `Redis error: ${error.message}`);
     });
     await client.connect();
