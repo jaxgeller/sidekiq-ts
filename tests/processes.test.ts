@@ -60,4 +60,16 @@ describe("Process/worker tracking", () => {
       await runner.stop();
     }
   });
+
+  it("cleans up stale process entries", async () => {
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    await redis.sAdd("processes", ["stale-process"]);
+
+    const processSet = new ProcessSet();
+    const cleaned = await processSet.cleanup();
+    expect(cleaned).toBe(1);
+
+    const remaining = await redis.sMembers("processes");
+    expect(remaining).not.toContain("stale-process");
+  });
 });

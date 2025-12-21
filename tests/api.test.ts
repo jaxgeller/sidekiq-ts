@@ -3,6 +3,7 @@ import {
   Sidekiq,
   Job,
   Stats,
+  StatsHistory,
   Queue,
   ScheduledSet,
   RetrySet,
@@ -56,6 +57,20 @@ describe("Data API", () => {
 
     expect(await stats.processed()).toBe(0);
     expect(await stats.failed()).toBe(0);
+  });
+
+  it("reads historical stats", async () => {
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const today = new Date().toISOString().slice(0, 10);
+    await redis.set(`stat:processed:${today}`, "3");
+    await redis.set(`stat:failed:${today}`, "1");
+
+    const history = new StatsHistory(1);
+    const processed = await history.processed();
+    const failed = await history.failed();
+
+    expect(processed[today]).toBe(3);
+    expect(failed[today]).toBe(1);
   });
 
   it("exposes scheduled, retry, and dead sets", async () => {

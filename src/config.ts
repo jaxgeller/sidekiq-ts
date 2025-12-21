@@ -4,6 +4,8 @@ import { createLogger, type Logger } from "./logger.js";
 import type { RedisClient } from "./redis.js";
 import { MiddlewareChain } from "./middleware.js";
 import type { JobPayload } from "./types.js";
+import { DefaultJobLogger } from "./job_logger.js";
+import type { JobLogger } from "./types.js";
 import type {
   ConfigOptions,
   LifecycleEvents,
@@ -35,12 +37,16 @@ export class Config {
   deadMaxJobs: number;
   deadTimeoutInSeconds: number;
   backtraceCleaner: (backtrace: string[]) => string[];
+  skipDefaultJobLogging: boolean;
+  loggedJobAttributes: string[];
+  profiler?: (payload: JobPayload, fn: () => Promise<void>) => Promise<void>;
   strictArgs: StrictArgsMode;
   errorHandlers: ErrorHandler[];
   deathHandlers: DeathHandler[];
   lifecycleEvents: LifecycleEvents;
   logger: Logger;
   redisIdleTimeout: number | null;
+  jobLogger: JobLogger;
   clientMiddleware: MiddlewareChain<
     [string | unknown, JobPayload, string, RedisClient],
     JobPayload | false | null | undefined
@@ -69,6 +75,9 @@ export class Config {
     this.deadTimeoutInSeconds =
       options.deadTimeoutInSeconds ?? 180 * 24 * 60 * 60;
     this.backtraceCleaner = options.backtraceCleaner ?? ((backtrace) => backtrace);
+    this.skipDefaultJobLogging = options.skipDefaultJobLogging ?? false;
+    this.loggedJobAttributes = options.loggedJobAttributes ?? ["tags"];
+    this.profiler = options.profiler;
     this.strictArgs = options.strictArgs ?? "raise";
     this.errorHandlers = options.errorHandlers ?? [];
     this.deathHandlers = options.deathHandlers ?? [];
@@ -78,6 +87,7 @@ export class Config {
     };
     this.logger = options.logger ?? createLogger();
     this.redisIdleTimeout = options.redisIdleTimeout ?? null;
+    this.jobLogger = options.jobLogger ?? new DefaultJobLogger(this);
     this.clientMiddleware = new MiddlewareChain(this);
     this.serverMiddleware = new MiddlewareChain(this);
   }

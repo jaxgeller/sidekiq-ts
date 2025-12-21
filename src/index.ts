@@ -6,6 +6,7 @@ export { Runner } from "./runner.js";
 export { Testing, Queues, EmptyQueueError } from "./testing.js";
 export {
   Stats,
+  StatsHistory,
   Queue,
   ScheduledSet,
   RetrySet,
@@ -14,4 +15,5 @@ export {
   Workers,
 } from "./api.js";
 export { loadConfigFile } from "./config_loader.js";
+export { DefaultJobLogger } from "./job_logger.js";
 export type * from "./types.js";

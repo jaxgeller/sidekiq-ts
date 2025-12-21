@@ -38,6 +38,10 @@ export interface ConfigOptions {
   deadMaxJobs?: number;
   deadTimeoutInSeconds?: number;
   backtraceCleaner?: (backtrace: string[]) => string[];
+  skipDefaultJobLogging?: boolean;
+  loggedJobAttributes?: string[];
+  profiler?: (payload: JobPayload, fn: () => Promise<void>) => Promise<void>;
+  jobLogger?: JobLogger;
   strictArgs?: StrictArgsMode;
   errorHandlers?: ErrorHandler[];
   deathHandlers?: DeathHandler[];
@@ -56,6 +60,9 @@ export interface JobOptions {
   retry_queue?: string;
   dead?: boolean;
   tags?: string[];
+  log_level?: string;
+  profile?: boolean | string;
+  profiler_options?: Record<string, unknown>;
 }
 
 export interface JobSetterOptions extends JobOptions {
@@ -93,6 +100,11 @@ export interface JobPayload extends JobOptions {
   error_backtrace?: string;
   discarded_at?: number;
   [key: string]: unknown;
+}
+
+export interface JobLogger {
+  prepare<T>(payload: JobPayload, fn: () => Promise<T> | T): Promise<T> | T;
+  call<T>(payload: JobPayload, queue: string, fn: () => Promise<T> | T): Promise<T> | T;
 }
 
 export interface BulkPayload extends JobOptions {

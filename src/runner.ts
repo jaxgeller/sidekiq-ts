@@ -8,6 +8,7 @@ import { compressBacktrace, extractBacktrace } from "./backtrace.js";
 import { hostname } from "node:os";
 
 const FETCH_TIMEOUT_SECONDS = 2;
+const STATS_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
 
 const LUA_ZPOPBYSCORE = `
 local key, now = KEYS[1], ARGV[1]
@@ -115,12 +116,16 @@ export class Runner {
   private startedAt: number;
   private workState = new Map<string, { queue: string; payload: string; runAt: number }>();
   private inProgress = new Map<string, { queue: string; payload: string }>();
+  private lastCleanupAt = 0;
+  private rttReadings: number[] = [];
+  private jobLogger: Config["jobLogger"];
 
   constructor(config: Config) {
     this.config = config;
     this.queueStrategy = new QueueStrategy(config.queues);
     this.startedAt = Date.now() / 1000;
     this.identity = `${hostname()}:${process.pid}`;
+    this.jobLogger = config.jobLogger;
   }
 
   async start(): Promise<void> {
@@ -182,6 +187,7 @@ export class Runner {
     const redis = this.baseRedis ?? (await this.config.getRedisClient());
     const now = Date.now() / 1000;
     const info = this.processInfo();
+    const rssKb = Math.round(process.memoryUsage().rss / 1024);
 
     const workKey = `${this.identity}:work`;
     const workEntries: Record<string, string> = {};
@@ -194,6 +200,7 @@ export class Runner {
     }
 
     try {
+      await this.cleanupProcesses(redis);
       const rttUs = await this.checkRtt(redis);
       const pipeline = redis.multi();
       pipeline.unlink(workKey);
@@ -208,7 +215,7 @@ export class Runner {
         beat: String(now),
         quiet: String(this.quieting),
         rtt_us: String(rttUs),
-        rss: "0",
+        rss: String(rssKb),
       });
       pipeline.expire(this.identity, 60);
       await pipeline.exec();
@@ -250,7 +257,26 @@ export class Runner {
     const start = process.hrtime.bigint();
     await redis.ping();
     const end = process.hrtime.bigint();
-    return Number((end - start) / 1000n);
+    const rtt = Number((end - start) / 1000n);
+    this.recordRtt(rtt);
+    return rtt;
+  }
+
+  private recordRtt(rtt: number): void {
+    const MAX_READINGS = 5;
+    const WARNING_LEVEL = 50_000;
+    this.rttReadings.push(rtt);
+    if (this.rttReadings.length > MAX_READINGS) {
+      this.rttReadings.shift();
+    }
+    if (this.rttReadings.length === MAX_READINGS && this.rttReadings.every((value) => value > WARNING_LEVEL)) {
+      this.config.logger.warn(
+        () =>
+          `Redis RTT is high (${this.rttReadings.join(", ")} us). ` +
+          "Consider lowering concurrency or colocating Redis."
+      );
+      this.rttReadings = [];
+    }
   }
 
   private async waitForDrain(deadline: number): Promise<void> {
@@ -294,6 +320,47 @@ export class Runner {
     pipeline.zRemRangeByScore("dead", 0, cutoff);
     pipeline.zRemRangeByRank("dead", 0, -this.config.deadMaxJobs);
     await pipeline.exec();
+  }
+
+  private async runWithProfiler(
+    payload: JobPayload,
+    fn: () => Promise<void>
+  ): Promise<void> {
+    if (payload.profile && this.config.profiler) {
+      await this.config.profiler(payload, fn);
+      return;
+    }
+    await fn();
+  }
+
+  private async cleanupProcesses(
+    redis: Awaited<ReturnType<Config["getRedisClient"]>>
+  ): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastCleanupAt < 60_000) {
+      return;
+    }
+    const lock = await redis.set("process_cleanup", "1", {
+      NX: true,
+      EX: 60,
+    });
+    if (lock !== "OK") {
+      return;
+    }
+    this.lastCleanupAt = now;
+    const processes = await redis.sMembers("processes");
+    if (processes.length === 0) {
+      return;
+    }
+    const pipeline = redis.multi();
+    processes.forEach((key) => {
+      pipeline.hGet(key, "info");
+    });
+    const result = await pipeline.exec();
+    const toPrune = processes.filter((_, index) => !result?.[index]);
+    if (toPrune.length > 0) {
+      await redis.sRem("processes", toPrune);
+    }
   }
 
   private startHeartbeat(): void {
@@ -402,7 +469,7 @@ export class Runner {
       payload = loadJson(payloadRaw) as JobPayload;
     } catch (error) {
       await this.sendRawToMorgue(payloadRaw);
-      await redis.incr("stat:failed");
+      await this.updateStat("failed");
       this.config.logger.error(
         () => `Invalid JSON for job on ${queue}: ${String(error)}`
       );
@@ -416,7 +483,7 @@ export class Runner {
       this.config.logger.error(
         () => `Unknown job class ${className} for ${queue}`
       );
-      await redis.incr("stat:failed");
+      await this.updateStat("failed");
       return;
     }
 
@@ -426,12 +493,18 @@ export class Runner {
 
     try {
       let executed = false;
-      await this.config.serverMiddleware.invoke(job, payload, queue, async () => {
-        executed = true;
-      await job.perform(...(payload.args ?? []));
+      await this.jobLogger.prepare(payload, async () => {
+        await this.jobLogger.call(payload, queue, async () => {
+          await this.runWithProfiler(payload, async () => {
+            await this.config.serverMiddleware.invoke(job, payload, queue, async () => {
+              executed = true;
+              await job.perform(...(payload.args ?? []));
+            });
+          });
+        });
       });
       if (executed) {
-        await redis.incr("stat:processed");
+        await this.updateStat("processed");
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -452,7 +525,7 @@ export class Runner {
       () => `Job ${className} failed on ${queue}: ${message}`
     );
 
-    await redis.incr("stat:failed");
+    await this.updateStat("failed");
 
     const retryOption =
       payload.retry !== undefined
@@ -643,5 +716,17 @@ export class Runner {
     } catch {
       return "!!! ERROR MESSAGE THREW AN ERROR !!!";
     }
+  }
+
+  private async updateStat(stat: "processed" | "failed", count = 1): Promise<void> {
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    const date = new Date().toISOString().slice(0, 10);
+    const key = `stat:${stat}`;
+    const dailyKey = `${key}:${date}`;
+    const pipeline = redis.multi();
+    pipeline.incrBy(key, count);
+    pipeline.incrBy(dailyKey, count);
+    pipeline.expire(dailyKey, STATS_TTL_SECONDS);
+    await pipeline.exec();
   }
 }

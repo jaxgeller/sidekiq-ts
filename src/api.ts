@@ -140,6 +140,50 @@ export class Stats {
   }
 }
 
+export class StatsHistory {
+  private config?: Config;
+  private daysPrevious: number;
+  private startDate: Date;
+
+  constructor(daysPrevious: number, startDate: Date = new Date(), config?: Config) {
+    if (daysPrevious < 1 || daysPrevious > 5 * 365) {
+      throw new Error("daysPrevious must be between 1 and 1825");
+    }
+    this.config = config;
+    this.daysPrevious = daysPrevious;
+    this.startDate = new Date(Date.UTC(
+      startDate.getUTCFullYear(),
+      startDate.getUTCMonth(),
+      startDate.getUTCDate()
+    ));
+  }
+
+  async processed(): Promise<Record<string, number>> {
+    return this.dateStat("processed");
+  }
+
+  async failed(): Promise<Record<string, number>> {
+    return this.dateStat("failed");
+  }
+
+  private async dateStat(stat: "processed" | "failed"): Promise<Record<string, number>> {
+    const dates: string[] = [];
+    for (let i = 0; i < this.daysPrevious; i += 1) {
+      const date = new Date(this.startDate);
+      date.setUTCDate(this.startDate.getUTCDate() - i);
+      dates.push(date.toISOString().slice(0, 10));
+    }
+    const keys = dates.map((date) => `stat:${stat}:${date}`);
+    const redis = await getRedis(this.config);
+    const values = await redis.mGet(keys);
+    const result: Record<string, number> = {};
+    dates.forEach((date, index) => {
+      result[date] = Number(values[index] ?? 0);
+    });
+    return result;
+  }
+}
+
 export class Queue {
   private config?: Config;
   readonly name: string;
@@ -291,6 +335,29 @@ export class ProcessSet {
         rss: Number(raw.rss ?? 0),
       };
     });
+  }
+
+  async cleanup(): Promise<number> {
+    const redis = await getRedis(this.config);
+    const lock = await redis.set("process_cleanup", "1", { NX: true, EX: 60 });
+    if (lock !== "OK") {
+      return 0;
+    }
+    const processes = await redis.sMembers("processes");
+    if (processes.length === 0) {
+      return 0;
+    }
+    const pipeline = redis.multi();
+    processes.forEach((key) => {
+      pipeline.hGet(key, "info");
+    });
+    const result = await pipeline.exec();
+    const toPrune = processes.filter((_, index) => !result?.[index]);
+    if (toPrune.length === 0) {
+      return 0;
+    }
+    await redis.sRem("processes", toPrune);
+    return toPrune.length;
   }
 }
 
