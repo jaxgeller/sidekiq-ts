@@ -226,8 +226,9 @@ export class Runner {
       return null;
     }
 
-    const [queue, job] = result;
+    const [queueKey, job] = result;
     const payload = loadJson(job) as JobPayload;
+    const queue = queueKey.startsWith("queue:") ? queueKey.slice(6) : queueKey;
 
     return { queue, payload };
   }
@@ -250,8 +251,14 @@ export class Runner {
     job._context = { stopping: () => this.stopping };
 
     try {
-      await job.perform(...(payload.args ?? []));
-      await redis.incr("stat:processed");
+      let executed = false;
+      await this.config.serverMiddleware.invoke(job, payload, queue, async () => {
+        executed = true;
+        await job.perform(...(payload.args ?? []));
+      });
+      if (executed) {
+        await redis.incr("stat:processed");
+      }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       await this.handleFailure(queue, payload, klass, err);
@@ -291,7 +298,7 @@ export class Runner {
 
     const nowMs = Date.now();
     const nowSeconds = nowMs / 1000;
-    payload.queue = payload.retry_queue ?? payload.queue ?? queue.replace("queue:", "");
+    payload.queue = payload.retry_queue ?? payload.queue ?? queue;
     payload.error_message = message.slice(0, 10_000);
     payload.error_class = error.name;
 

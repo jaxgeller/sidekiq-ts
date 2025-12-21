@@ -14,3 +14,6 @@ export const registerJob = (klass: RegisteredJobClass): void => {
 
 export const resolveJob = (name: string): RegisteredJobClass | undefined =>
   registry.get(name);
+
+export const registeredJob = (name: string): RegisteredJobClass | undefined =>
+  registry.get(name);

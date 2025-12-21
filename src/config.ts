@@ -2,6 +2,8 @@ import { createClient } from "redis";
 import type { RedisClientOptions } from "redis";
 import { createLogger, type Logger } from "./logger.js";
 import type { RedisClient } from "./redis.js";
+import { MiddlewareChain } from "./middleware.js";
+import type { JobPayload } from "./types.js";
 import type {
   ConfigOptions,
   LifecycleEvents,
@@ -35,6 +37,14 @@ export class Config {
   lifecycleEvents: LifecycleEvents;
   logger: Logger;
   redisIdleTimeout: number | null;
+  clientMiddleware: MiddlewareChain<
+    [string | unknown, JobPayload, string, RedisClient],
+    JobPayload | false | null | undefined
+  >;
+  serverMiddleware: MiddlewareChain<
+    [unknown, JobPayload, string],
+    unknown
+  >;
   private redisClient?: RedisClient;
 
   constructor(options: ConfigOptions = {}) {
@@ -60,6 +70,8 @@ export class Config {
     };
     this.logger = options.logger ?? createLogger();
     this.redisIdleTimeout = options.redisIdleTimeout ?? null;
+    this.clientMiddleware = new MiddlewareChain(this);
+    this.serverMiddleware = new MiddlewareChain(this);
   }
 
   async getRedisClient(): Promise<RedisClient> {

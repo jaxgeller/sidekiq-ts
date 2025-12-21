@@ -122,6 +122,7 @@ Config surface (initial)
 
 ### Middleware
 Client and server middleware chains mirror Sidekiq's `call` pattern.
+Chains support `add/use`, `prepend`, `insertBefore`, `insertAfter`, and `remove`.
 
 ```ts
 class MyClientMiddleware {
@@ -169,7 +170,7 @@ HardJob.drain();
 ```
 
 Testing API
-- `Testing.fake()` (default in tests)
+- `Testing.fake()` (explicit opt-in)
 - `Testing.inline()`
 - `Testing.disable()`
 - `Job.jobs`, `Job.clearAll()`, `Job.drainAll()`
@@ -212,13 +213,13 @@ Phase 1: Core enqueueing + execution (done)
 - Add strict args validation and minimal retry handling.
 - Add tests with Vitest for enqueue/perform and scheduling.
 
-Phase 2: Scheduling + retries (in progress)
+Phase 2: Scheduling + retries (done)
 - Scheduled poller to move due jobs from `schedule` and `retry` to queues.
 - Retry set handling and exponential backoff.
 - Dead set handling and death handlers.
 - Tests for retry behavior and scheduled jobs.
 
-Phase 3: Middleware + Testing utilities
+Phase 3: Middleware + Testing utilities (in progress)
 - Client/server middleware chains.
 - Testing fake/inline modes and in-memory queues.
 - Tests for middleware and testing mode behavior.

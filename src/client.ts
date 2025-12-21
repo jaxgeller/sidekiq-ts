@@ -8,6 +8,7 @@ import {
   verifyJson,
   generateJid,
 } from "./job_util.js";
+import { Testing } from "./testing.js";
 import type {
   BulkPayload,
   JobPayload,
@@ -35,15 +36,31 @@ export class Client {
     );
   }
 
-  middleware(_fn?: unknown): void {
-    // Placeholder for middleware support (Phase 3).
+  middleware(fn?: (chain: Config["clientMiddleware"]) => void): Config["clientMiddleware"] {
+    if (fn) {
+      fn(this.config.clientMiddleware);
+    }
+    return this.config.clientMiddleware;
   }
 
   async push(item: JobPayload): Promise<string | null> {
     const normalized = normalizeItem(item, Sidekiq.defaultJobOptions());
-    verifyJson(normalized.args, this.config.strictArgs);
-    await this.rawPush([normalized]);
-    return normalized.jid ?? null;
+    const queue = normalized.queue ?? "default";
+    const redis = await this.getRedis();
+    const result = await this.config.clientMiddleware.invoke(
+      item.class,
+      normalized,
+      queue,
+      redis,
+      async () => normalized
+    );
+    if (!result) {
+      return null;
+    }
+    const payload = result as JobPayload;
+    verifyJson(payload.args, this.config.strictArgs);
+    await this.rawPush([payload]);
+    return payload.jid ?? null;
   }
 
   async pushBulk(items: BulkPayload): Promise<(string | null)[]> {
@@ -96,6 +113,7 @@ export class Client {
     const normalized = normalizeItem(base, Sidekiq.defaultJobOptions());
 
     const results: Array<string | null> = [];
+    const redis = await this.getRedis();
     for (let i = 0; i < args.length; i += batchSize) {
       const slice = args.slice(i, i + batchSize);
       if (slice.length === 0) {
@@ -105,7 +123,7 @@ export class Client {
         throw new Error("Bulk arguments must be an Array of Arrays: [[1], [2]]");
       }
 
-      const payloads = slice.map((jobArgs, index) => {
+      const payloads = await Promise.all(slice.map(async (jobArgs, index) => {
         const payload: JobPayload = {
           ...normalized,
           args: jobArgs,
@@ -116,12 +134,24 @@ export class Client {
             ? resolvedAt[i + index]
             : resolvedAt;
         }
-        verifyJson(payload.args, this.config.strictArgs);
-        return payload;
-      });
+        const result = await this.config.clientMiddleware.invoke(
+          items.class,
+          payload,
+          payload.queue ?? "default",
+          redis,
+          async () => payload
+        );
+        if (!result) {
+          return null;
+        }
+        const finalPayload = result as JobPayload;
+        verifyJson(finalPayload.args, this.config.strictArgs);
+        return finalPayload;
+      }));
 
-      await this.rawPush(payloads);
-      results.push(...payloads.map((payload) => payload.jid ?? null));
+      const toPush = payloads.filter((payload): payload is JobPayload => Boolean(payload));
+      await this.rawPush(toPush);
+      results.push(...payloads.map((payload) => payload?.jid ?? null));
     }
 
     return results;
@@ -196,6 +226,17 @@ export class Client {
 
   private async rawPush(payloads: JobPayload[]): Promise<void> {
     if (payloads.length === 0) {
+      return;
+    }
+    const testMode = Testing.mode();
+    if (testMode === "fake") {
+      payloads.forEach((payload) => Testing.enqueue(payload));
+      return;
+    }
+    if (testMode === "inline") {
+      for (const payload of payloads) {
+        await Testing.performInline(payload, this.config);
+      }
       return;
     }
     const redis = await this.getRedis();

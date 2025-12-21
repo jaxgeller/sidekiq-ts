@@ -2,6 +2,7 @@ import type { JobOptions, JobPayload, JobSetterOptions, BulkOptions } from "./ty
 import { Sidekiq } from "./sidekiq.js";
 import { Client } from "./client.js";
 import { normalizeItem, verifyJson } from "./job_util.js";
+import { EmptyQueueError, Queues } from "./testing.js";
 
 const OPTIONS_KEY = Symbol("sidekiqOptions");
 
@@ -22,6 +23,11 @@ export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   performAt(timestamp: number, ...args: TArgs): Promise<string | null>;
   performBulk(args: TArgs[][], options?: BulkOptions): Promise<(string | null)[]>;
   performInline(...args: TArgs): Promise<boolean | null>;
+  jobs(): JobPayload[];
+  clear(): void;
+  drain(): Promise<void>;
+  performOne(): Promise<void>;
+  processJob(payload: JobPayload): Promise<void>;
   clientPush(item: JobPayload): Promise<string | null>;
 };
 
@@ -103,6 +109,67 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     ...args: TArgs
   ): Promise<boolean | null> {
     return new JobSetter(this, {}).performInline(...args);
+  }
+
+  static jobs(this: JobConstructor | typeof Job): JobPayload[] {
+    if (this === Job) {
+      return Queues.jobs();
+    }
+    return Queues.jobsForClass(this.name);
+  }
+
+  static clear(this: JobConstructor): void {
+    const queue = this.getSidekiqOptions().queue ?? "default";
+    Queues.clearFor(queue, this.name);
+  }
+
+  static async drain(this: JobConstructor): Promise<void> {
+    while (this.jobs().length > 0) {
+      const nextJob = this.jobs()[0];
+      Queues.deleteFor(nextJob.jid ?? "", nextJob.queue ?? "default", this.name);
+      await this.processJob(nextJob);
+    }
+  }
+
+  static async performOne(this: JobConstructor): Promise<void> {
+    if (this.jobs().length === 0) {
+      throw new EmptyQueueError();
+    }
+    const nextJob = this.jobs()[0];
+    Queues.deleteFor(nextJob.jid ?? "", nextJob.queue ?? "default", this.name);
+    await this.processJob(nextJob);
+  }
+
+  static async processJob(this: JobConstructor, payload: JobPayload): Promise<void> {
+    const instance = new this();
+    instance.jid = payload.jid;
+    instance._context = { stopping: () => false };
+    await Sidekiq.defaultConfiguration.serverMiddleware.invoke(
+      instance,
+      payload,
+      payload.queue ?? "default",
+      async () => {
+        await instance.perform(...(payload.args ?? []));
+      }
+    );
+  }
+
+  static clearAll(): void {
+    Queues.clearAll();
+  }
+
+  static async drainAll(): Promise<void> {
+    while (Queues.jobs().length > 0) {
+      const jobs = Queues.jobs();
+      const classes = Array.from(new Set(jobs.map((job) => String(job.class))));
+      for (const className of classes) {
+        const klass = Sidekiq.registeredJobClass(className);
+        if (!klass) {
+          continue;
+        }
+        await (klass as JobConstructor).drain();
+      }
+    }
   }
 
   static async clientPush(this: JobConstructor, item: JobPayload): Promise<string | null> {

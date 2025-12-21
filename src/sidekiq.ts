@@ -1,6 +1,6 @@
 import { Config } from "./config.js";
 import { dumpJson, loadJson } from "./json.js";
-import { registerJob, type RegisteredJobClass } from "./registry.js";
+import { registerJob, registeredJob, type RegisteredJobClass } from "./registry.js";
 import type { JobOptions, StrictArgsMode } from "./types.js";
 
 export class Sidekiq {
@@ -73,6 +73,10 @@ export class Sidekiq {
 
   static registerJob(klass: RegisteredJobClass): void {
     registerJob(klass);
+  }
+
+  static registeredJobClass(name: string): RegisteredJobClass | undefined {
+    return registeredJob(name);
   }
 
   static async run({ config }: { config?: Config } = {}) {
