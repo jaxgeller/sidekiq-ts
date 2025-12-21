@@ -19,6 +19,7 @@ import {
   Job,
   Client,
   Testing,
+  Context,
   Stats,
   Queue,
   ScheduledSet,
@@ -64,6 +65,25 @@ Job instance API
 - `jid: string` (job id)
 - `logger()` (from config)
 - `interrupted(): boolean` (server shutdown awareness)
+
+### Logging + context
+Sidekiq attaches job metadata to log output via an AsyncLocalStorage-backed context.
+
+```ts
+Context.with({ request_id: "abc123" }, () => {
+  Sidekiq.logger().info("hello");
+});
+```
+
+Context API
+- `Context.current(): Record<string, unknown>`
+- `Context.with(values, fn): Promise<T> | T`
+- `Context.add(key, value): void`
+
+Default job logging injects context for each job:
+- `jid`, `class`, `queue`
+- Any `loggedJobAttributes` present in the payload
+- `elapsed` for `done`/`fail` logs
 
 ### Client
 Responsible for pushing jobs to Redis.
@@ -259,6 +279,7 @@ Phase 5: Operational parity (done)
 - Enhanced process/worker stats (RSS, RTT warnings).
 - Job logging/profiling hooks.
 - Metrics history (processed/failed per-day stats).
+- Job log context (Context API + default logger formatting).
 
 ## Open questions
 - Which Ruby Sidekiq version is the compatibility target for schema and payload nuances?

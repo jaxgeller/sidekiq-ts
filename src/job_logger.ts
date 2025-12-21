@@ -1,4 +1,5 @@
 import type { Config } from "./config.js";
+import { Context } from "./context.js";
 import type { JobPayload, JobLogger } from "./types.js";
 
 export class DefaultJobLogger implements JobLogger {
@@ -11,11 +12,25 @@ export class DefaultJobLogger implements JobLogger {
   }
 
   async prepare<T>(payload: JobPayload, fn: () => Promise<T> | T): Promise<T> {
-    return await fn();
+    const klass = payload.wrapped ?? payload.class;
+    const context: Record<string, unknown> = {
+      jid: payload.jid,
+      class: typeof klass === "string" ? klass : String(klass),
+    };
+
+    for (const attr of this.config.loggedJobAttributes) {
+      const value = payload[attr];
+      if (value !== undefined) {
+        context[attr] = value;
+      }
+    }
+
+    return await Context.with(context, fn);
   }
 
   async call<T>(payload: JobPayload, queue: string, fn: () => Promise<T> | T): Promise<T> {
     const start = process.hrtime.bigint();
+    Context.add("queue", queue);
     this.log("info", payload, queue, "start");
     try {
       const result = await fn();
@@ -42,12 +57,10 @@ export class DefaultJobLogger implements JobLogger {
       : null;
     const level = this.resolveLevel(payload.log_level) ?? fallbackLevel;
     const logger = this.config.logger;
-    const parts = [phase, payload.class, `jid=${payload.jid}`, `queue=${queue}`];
     if (elapsed !== null) {
-      parts.push(`elapsed=${elapsed.toFixed(3)}s`);
+      Context.add("elapsed", Number(elapsed.toFixed(3)));
     }
-    const message = parts.filter(Boolean).join(" ");
-    logger[level](() => message);
+    logger[level](() => phase);
   }
 
   private resolveLevel(level?: string) {
