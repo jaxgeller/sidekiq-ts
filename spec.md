@@ -164,7 +164,7 @@ Config surface (initial)
 - `skipDefaultJobLogging: boolean`
 - `loggedJobAttributes: string[]`
 - `profiler: (payload, fn) => Promise<void>`
-- `errorHandlers: Array<(err, ctx) => void>`
+- `errorHandlers: Array<(err, ctx, config?) => void>`
 - `deathHandlers: Array<(job, err) => void>`
 - `lifecycleEvents: { startup, quiet, shutdown, heartbeat }`
 - `logger`
@@ -256,6 +256,12 @@ Testing API
 - `retriesExhausted(fn)` hook for final failure handling.
 - `retryFor` max retry time window (optional).
 - `backtrace: true|number` stores compressed backtraces in `error_backtrace`.
+
+Error handler context
+- `context` message string (e.g. "Job raised exception", "Invalid JSON for job")
+- `job` payload (when available)
+- `queue` name (when available)
+- `jobstr` raw payload for invalid JSON cases
 
 ## Serialization and strict args
 - Only JSON-serializable args are allowed by default.

@@ -1,5 +1,6 @@
 import type { RedisClientOptions } from "redis";
 import type { Logger } from "./logger.js";
+import type { Config } from "./config.js";
 
 export type StrictArgsMode = "raise" | "warn" | "none";
 
@@ -16,7 +17,8 @@ export interface LifecycleEvents {
 
 export type ErrorHandler = (
   error: Error,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
+  config?: Config
 ) => void | Promise<void>;
 
 export type DeathHandler = (

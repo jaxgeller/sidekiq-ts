@@ -473,6 +473,11 @@ export class Runner {
       this.config.logger.error(
         () => `Invalid JSON for job on ${queue}: ${String(error)}`
       );
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.runErrorHandlers(
+        err,
+        this.buildErrorContext("Invalid JSON for job", undefined, queue, payloadRaw)
+      );
       return;
     }
 
@@ -484,6 +489,10 @@ export class Runner {
         () => `Unknown job class ${className} for ${queue}`
       );
       await this.updateStat("failed");
+      await this.runErrorHandlers(
+        new Error(`Unknown job class ${className}`),
+        this.buildErrorContext("Unknown job class", payload, queue)
+      );
       return;
     }
 
@@ -536,7 +545,10 @@ export class Runner {
       retryOption === false || retryOption === null || retryOption === undefined;
     if (retryDisabled) {
       await this.runDeathHandlers(payload, error);
-      await this.runErrorHandlers(payload, error, queue);
+      await this.runErrorHandlers(
+        error,
+        this.buildErrorContext("Job raised exception", payload, queue)
+      );
       return;
     }
 
@@ -574,12 +586,18 @@ export class Runner {
       const deadline = payload.failed_at / 1000 + retryFor;
       if (deadline < nowSeconds) {
         await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
-        await this.runErrorHandlers(payload, error, queue);
+        await this.runErrorHandlers(
+          error,
+          this.buildErrorContext("Job raised exception", payload, queue)
+        );
         return;
       }
     } else if (payload.retry_count >= maxRetries) {
       await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
-      await this.runErrorHandlers(payload, error, queue);
+      await this.runErrorHandlers(
+        error,
+        this.buildErrorContext("Job raised exception", payload, queue)
+      );
       return;
     }
 
@@ -594,7 +612,10 @@ export class Runner {
     }
     if (delayResult === "kill") {
       await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
-      await this.runErrorHandlers(payload, error, queue);
+      await this.runErrorHandlers(
+        error,
+        this.buildErrorContext("Job raised exception", payload, queue)
+      );
       return;
     }
 
@@ -606,7 +627,10 @@ export class Runner {
     const retryAt = nowSeconds + delaySeconds + jitter;
 
     await redis.zAdd("retry", [{ score: retryAt, value: dumpJson(payload) }]);
-    await this.runErrorHandlers(payload, error, queue);
+    await this.runErrorHandlers(
+      error,
+      this.buildErrorContext("Job raised exception", payload, queue)
+    );
   }
 
   private safeRetryIn(
@@ -688,16 +712,15 @@ export class Runner {
   }
 
   private async runErrorHandlers(
-    payload: JobPayload,
     error: Error,
-    queue: string
+    context: Record<string, unknown>
   ): Promise<void> {
     if (this.config.errorHandlers.length === 0) {
       return;
     }
     for (const handler of this.config.errorHandlers) {
       try {
-        await handler(error, { job: payload, queue });
+        await handler(error, context, this.config);
       } catch (handlerError) {
         const err =
           handlerError instanceof Error
@@ -708,6 +731,25 @@ export class Runner {
         );
       }
     }
+  }
+
+  private buildErrorContext(
+    message: string,
+    payload?: JobPayload,
+    queue?: string,
+    jobstr?: string
+  ): Record<string, unknown> {
+    const context: Record<string, unknown> = { context: message };
+    if (payload) {
+      context.job = payload;
+    }
+    if (queue) {
+      context.queue = queue;
+    }
+    if (jobstr) {
+      context.jobstr = jobstr;
+    }
+    return context;
   }
 
   private safeErrorMessage(error: Error): string {
