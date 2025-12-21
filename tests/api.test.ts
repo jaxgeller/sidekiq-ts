@@ -46,6 +46,18 @@ describe("Data API", () => {
     expect(entries[0].class).toBe("ApiJob");
   });
 
+  it("resets processed/failed stats", async () => {
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    await redis.set("stat:processed", "5");
+    await redis.set("stat:failed", "2");
+
+    const stats = new Stats();
+    await stats.reset();
+
+    expect(await stats.processed()).toBe(0);
+    expect(await stats.failed()).toBe(0);
+  });
+
   it("exposes scheduled, retry, and dead sets", async () => {
     await ApiJob.performIn(60, 2);
 

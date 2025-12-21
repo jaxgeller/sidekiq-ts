@@ -124,6 +124,9 @@ Config surface (initial)
 - `queues: string[] | Array<[string, number]>` (weighted)
 - `timeout: number` (shutdown timeout seconds)
 - `pollIntervalAverage: number`
+- `heartbeatInterval: number` (seconds between process heartbeats)
+- `tag: string`
+- `labels: string[]`
 - `errorHandlers: Array<(err, ctx) => void>`
 - `deathHandlers: Array<(job, err) => void>`
 - `lifecycleEvents: { startup, quiet, shutdown, heartbeat }`
@@ -132,6 +135,7 @@ Config surface (initial)
 - `maxRetries: number` (default 25)
 - `deadMaxJobs: number` (default 10000)
 - `deadTimeoutInSeconds: number` (default 180 days)
+- `backtraceCleaner: (lines: string[]) => string[]`
 
 ### Middleware
 Client and server middleware chains mirror Sidekiq's `call` pattern.
@@ -153,6 +157,7 @@ class MyServerMiddleware {
 
 ### Server runner
 A Node-side worker which polls Redis and executes jobs.
+Runner maintains process heartbeats and requeues in-flight jobs on forced shutdown.
 
 ```ts
 Sidekiq.registerJob(HardJob);
@@ -194,7 +199,7 @@ Testing API
 - `Stats` (processed, failed, enqueued, queue sizes, latency)
 - `Queue` (list/enumerate jobs in a queue)
 - `ScheduledSet`, `RetrySet`, `DeadSet` (ZSET-based)
-- `ProcessSet`/`WorkerSet` (server process info, optional)
+- `ProcessSet`/`Workers` (server process info and active work)
 
 ## Redis schema compatibility
 - Match Sidekiq's Redis schema and payloads exactly (key names, structures, timestamps, stats).
@@ -211,6 +216,7 @@ Testing API
 - `retryIn(fn)` hook to customize backoff.
 - `retriesExhausted(fn)` hook for final failure handling.
 - `retryFor` max retry time window (optional).
+- `backtrace: true|number` stores compressed backtraces in `error_backtrace`.
 
 ## Serialization and strict args
 - Only JSON-serializable args are allowed by default.
@@ -241,6 +247,12 @@ Phase 4: Data API + CLI (done)
 - Stats/Queue/Sets API (done).
 - CLI runner with JSON config file support.
 - Tests for data API and CLI config parsing.
+
+Phase 5: Operational parity (next)
+- Process cleanup and heartbeat robustness (stale process detection, cleanup cadence).
+- Enhanced process/worker stats (RSS, RTT warnings).
+- Job logging/profiling hooks.
+- Metrics history (processed/failed per-day stats).
 
 ## Open questions
 - Which Ruby Sidekiq version is the compatibility target for schema and payload nuances?
