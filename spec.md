@@ -262,6 +262,7 @@ Error handler context
 - `job` payload (when available)
 - `queue` name (when available)
 - `jobstr` raw payload for invalid JSON cases
+- Default error handler logs error stack with attached context when no custom handlers are set.
 
 ## Serialization and strict args
 - Only JSON-serializable args are allowed by default.

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Sidekiq, Job } from "../src/index.js";
+import { Sidekiq, Job, SidekiqLogger } from "../src/index.js";
+import { PlainFormatter } from "../src/logger.js";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Config } from "../src/config.js";
 
@@ -42,13 +43,16 @@ afterAll(async () => {
 
 describe("Error handlers", () => {
   let originalHandlers: typeof Sidekiq.defaultConfiguration.errorHandlers;
+  let originalLogger: typeof Sidekiq.defaultConfiguration.logger;
 
   beforeEach(() => {
     originalHandlers = Sidekiq.defaultConfiguration.errorHandlers;
+    originalLogger = Sidekiq.defaultConfiguration.logger;
   });
 
   afterEach(() => {
     Sidekiq.defaultConfiguration.errorHandlers = originalHandlers;
+    Sidekiq.defaultConfiguration.logger = originalLogger;
   });
 
   it("passes job context to error handlers", async () => {
@@ -101,6 +105,34 @@ describe("Error handlers", () => {
       expect(context.context).toBe("Invalid JSON for job");
       expect(context.queue).toBe("default");
       expect(context.jobstr).toBe("{invalid");
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it("logs errors with the default handler", async () => {
+    const messages: string[] = [];
+    const base = {
+      debug: (message: string) => messages.push(message),
+      info: (message: string) => messages.push(message),
+      warn: (message: string) => messages.push(message),
+      error: (message: string) => messages.push(message),
+    } as unknown as Console;
+
+    Sidekiq.defaultConfiguration.logger = new SidekiqLogger(
+      base,
+      new PlainFormatter()
+    );
+    const runner = await Sidekiq.run();
+    try {
+      await ErrorJob.performAsync();
+      await waitFor(() =>
+        messages.some(
+          (message) =>
+            message.includes("Error: boom") &&
+            message.includes("context=Job raised exception")
+        )
+      );
     } finally {
       await runner.stop();
     }

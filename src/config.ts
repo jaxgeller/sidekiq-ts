@@ -6,6 +6,7 @@ import { MiddlewareChain } from "./middleware.js";
 import type { JobPayload } from "./types.js";
 import { DefaultJobLogger } from "./job_logger.js";
 import type { JobLogger } from "./types.js";
+import { Context } from "./context.js";
 import type {
   ConfigOptions,
   LifecycleEvents,
@@ -90,6 +91,16 @@ export class Config {
     this.jobLogger = options.jobLogger ?? new DefaultJobLogger(this);
     this.clientMiddleware = new MiddlewareChain(this);
     this.serverMiddleware = new MiddlewareChain(this);
+
+    if (this.errorHandlers.length === 0) {
+      this.errorHandlers.push((error, context) => {
+        Context.with(context, () => {
+          const message =
+            error.stack ?? `${error.name}: ${error.message ?? "Unknown error"}`;
+          this.logger.info(() => message);
+        });
+      });
+    }
   }
 
   async getRedisClient(): Promise<RedisClient> {
