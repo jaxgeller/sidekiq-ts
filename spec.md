@@ -105,6 +105,19 @@ Sidekiq.configureClient((config) => {
 });
 ```
 
+JSON config (CLI)
+```json
+{
+  "redis": { "url": "redis://localhost:6379/0" },
+  "concurrency": 10,
+  "queues": ["critical", "default", "low"],
+  "maxRetries": 25,
+  "deadMaxJobs": 10000,
+  "deadTimeoutInSeconds": 15552000,
+  "require": ["./dist/jobs.js"]
+}
+```
+
 Config surface (initial)
 - `redis: { url: string; ... }`
 - `concurrency: number`
