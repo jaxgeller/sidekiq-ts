@@ -301,5 +301,17 @@ Phase 5: Operational parity (done)
 - Metrics history (processed/failed per-day stats).
 - Job log context (Context API + default logger formatting).
 
+## Gap Analysis vs Ruby Sidekiq (excluding Rails/ActiveJob/Capsules)
+- Execution metrics tracking + query API (`Sidekiq::Metrics::ExecutionTracker`, histograms, marks, query rollups).
+- Deploy marks (`Sidekiq::Deploy`) for timeline markers used by metrics/web UI.
+- Profiling persistence (`Sidekiq::Profiler` storing profiles in Redis, `profiles` ZSET + data hash).
+- Iterable jobs (`Sidekiq::IterableJob`, enumerators, interrupt handler, max_iteration_runtime).
+- Transaction-aware client (defers enqueue until commit).
+- Redis sharding/pools (`redis_pool`, `redis_info`, adapter), plus job-level `set(pool:)` targeting.
+- CLI parity (YAML/ERB config, daemonize/logfile/pidfile, env/require handling, signal handlers, `sidekiqmon` monitor CLI).
+- Systemd/sd_notify integration.
+- Data API actions: `Queue#each/find_job`, `JobRecord`, `SortedSet`/`JobSet` actions (`scan`, `delete`, `retry`, `kill`, `reschedule`, `retry_all`, `kill_all`), `DeadSet#kill`, richer `ProcessSet` helpers.
+- Logger level filtering (`with_level`, debug?/info? methods) and `Sidekiq::Component`-style `handle_exception` plumbing.
+
 ## Open questions
 - Which Ruby Sidekiq version is the compatibility target for schema and payload nuances?
