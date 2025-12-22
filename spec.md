@@ -270,6 +270,13 @@ Testing API
 - `MyJob.jobs`, `MyJob.clear()`, `MyJob.drain()`, `MyJob.performOne()`
 - `Queues` helper for per-queue introspection
 
+### Benchmarking
+Benchmark script for enqueue + processing throughput:
+
+```
+npm run bench -- --jobs 20000 --concurrency 10 --batch 1000
+```
+
 ### Data API
 - `Stats` (processed, failed, enqueued, queue sizes, latency, reset)
 - `StatsHistory` (per-day processed/failed counts)

@@ -12,7 +12,8 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "bench": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "redis": "^5.10.0"
