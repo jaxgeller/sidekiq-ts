@@ -15,6 +15,7 @@ import type { JobPayload } from "./types.js";
 
 const FETCH_TIMEOUT_SECONDS = 2;
 const STATS_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
+const INITIAL_WAIT_SECONDS = 10;
 
 const LUA_ZPOPBYSCORE = `
 local key, now = KEYS[1], ARGV[1]
@@ -126,6 +127,7 @@ export class Runner {
   private stopping = false;
   private readonly workers: Promise<void>[] = [];
   private schedulerHandle?: NodeJS.Timeout;
+  private schedulerRunning = false;
   private heartbeatHandle?: NodeJS.Timeout;
   private readonly queueStrategy: QueueStrategy;
   private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
@@ -166,15 +168,18 @@ export class Runner {
       this.workerRedis[i] = client;
       this.workers.push(this.workLoop(i));
     }
+    await this.config.fireEvent("startup");
   }
 
-  quiet(): void {
+  async quiet(): Promise<void> {
     this.quieting = true;
+    await this.config.fireEvent("quiet");
   }
 
   async stop(): Promise<void> {
     this.quieting = true;
     this.stopping = true;
+    await this.config.fireEvent("shutdown", { reverse: true });
     this.stopHeartbeat();
     this.stopScheduler();
     const deadline = Date.now() + this.config.timeout * 1000;
@@ -191,6 +196,7 @@ export class Runner {
         }
       })
     );
+    await this.config.fireEvent("exit", { reverse: true });
   }
 
   snapshotWork(): WorkSnapshot[] {
@@ -216,13 +222,74 @@ export class Runner {
   }
 
   private startScheduler(): void {
-    const intervalMs = this.config.averageScheduledPollInterval * 1000;
-    this.schedulerHandle = setInterval(() => {
-      this.enqueueScheduled().catch(() => undefined);
-    }, intervalMs);
+    this.schedulerRunning = true;
+    this.runSchedulerLoop().catch(() => undefined);
+  }
+
+  private async runSchedulerLoop(): Promise<void> {
+    // Initial wait: give time for heartbeats to register so process count is accurate
+    await this.initialWait();
+
+    while (this.schedulerRunning && !this.stopping) {
+      await this.enqueueScheduled().catch(() => undefined);
+      const intervalMs = await this.randomPollInterval();
+      await sleep(intervalMs);
+    }
+  }
+
+  private async initialWait(): Promise<void> {
+    // Wait 10-15 seconds before first poll to let heartbeats register
+    // and to avoid thundering herd on restart
+    const useDynamicInterval = this.config.pollIntervalAverage === null;
+    let waitSeconds = 0;
+
+    if (useDynamicInterval) {
+      waitSeconds += INITIAL_WAIT_SECONDS;
+    }
+    waitSeconds += Math.random() * 5; // 0-5 seconds jitter
+
+    if (waitSeconds > 0) {
+      await sleep(waitSeconds * 1000);
+    }
+
+    // Run cleanup after initial wait
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    await this.cleanupProcesses(redis);
+  }
+
+  private async processCount(): Promise<number> {
+    const redis = this.baseRedis ?? (await this.config.getRedisClient());
+    const count = await redis.sCard("processes");
+    return count === 0 ? 1 : count;
+  }
+
+  private scaledPollInterval(processCount: number): number {
+    return processCount * this.config.averageScheduledPollInterval;
+  }
+
+  private async randomPollInterval(): Promise<number> {
+    // If user set a fixed poll interval, use it directly
+    if (this.config.pollIntervalAverage !== null) {
+      return this.config.pollIntervalAverage * 1000;
+    }
+
+    const count = await this.processCount();
+    const interval = this.scaledPollInterval(count);
+
+    let intervalSeconds: number;
+    if (count < 10) {
+      // For small clusters, calculate a random interval that is ±50% the desired average
+      intervalSeconds = interval * Math.random() + interval / 2;
+    } else {
+      // With 10+ processes, we have enough randomness for decent polling spread
+      intervalSeconds = interval * Math.random() * 2;
+    }
+
+    return intervalSeconds * 1000;
   }
 
   private stopScheduler(): void {
+    this.schedulerRunning = false;
     if (this.schedulerHandle) {
       clearInterval(this.schedulerHandle);
       this.schedulerHandle = undefined;
@@ -268,6 +335,10 @@ export class Runner {
       });
       pipeline.expire(this.identity, 60);
       await pipeline.exec();
+
+      // Fire heartbeat/beat events (not oneshot - they fire repeatedly)
+      await this.config.fireEvent("heartbeat", { oneshot: false });
+      await this.config.fireEvent("beat", { oneshot: false });
     } catch (error) {
       this.config.logger.error(
         () =>

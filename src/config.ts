@@ -135,4 +135,47 @@ export class Config {
     }
     return Array.from(names);
   }
+
+  /**
+   * Fire a lifecycle event, calling all registered handlers.
+   *
+   * @param event - The event name to fire
+   * @param options - Options for firing the event
+   * @param options.oneshot - If true, clear handlers after firing (default: true)
+   * @param options.reverse - If true, call handlers in reverse order
+   * @param options.reraise - If true, re-throw any errors from handlers
+   */
+  async fireEvent(
+    event: keyof LifecycleEvents,
+    options: { oneshot?: boolean; reverse?: boolean; reraise?: boolean } = {}
+  ): Promise<void> {
+    const { oneshot = true, reverse = false, reraise = false } = options;
+
+    if (oneshot) {
+      this.logger.debug(() => `Firing ${event} event`);
+    }
+
+    const handlers = [...this.lifecycleEvents[event]];
+    if (reverse) {
+      handlers.reverse();
+    }
+
+    for (const handler of handlers) {
+      try {
+        await handler();
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.error(
+          () => `Exception during Sidekiq lifecycle event ${event}: ${err.message}`
+        );
+        if (reraise) {
+          throw err;
+        }
+      }
+    }
+
+    if (oneshot) {
+      this.lifecycleEvents[event] = [];
+    }
+  }
 }
