@@ -22,6 +22,8 @@ const DEFAULT_LIFECYCLE_EVENTS: LifecycleEvents = {
   exit: [],
   heartbeat: [],
   beat: [],
+  leader: [],
+  follower: [],
 };
 
 export class Config {

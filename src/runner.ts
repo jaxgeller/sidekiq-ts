@@ -10,6 +10,8 @@ import type {
   RetryInHandler,
 } from "./job.js";
 import { dumpJson, loadJson } from "./json.js";
+import { LeaderElector } from "./leader.js";
+import { PeriodicScheduler } from "./periodic.js";
 import { resolveJob } from "./registry.js";
 import type { JobPayload } from "./types.js";
 
@@ -147,6 +149,8 @@ export class Runner {
   private lastCleanupAt = 0;
   private readonly rttReadings: number[] = [];
   private readonly jobLogger: Config["jobLogger"];
+  private leaderElector?: LeaderElector;
+  private _periodicScheduler?: PeriodicScheduler;
 
   constructor(config: Config) {
     this.config = config;
@@ -159,6 +163,20 @@ export class Runner {
   async start(): Promise<void> {
     this.baseRedis = await this.config.getRedisClient();
     ensureInterruptHandler(this.config);
+
+    // Start leader election
+    this.leaderElector = new LeaderElector(this.config, {
+      identity: this.identity,
+    });
+    await this.leaderElector.start();
+
+    // Start periodic scheduler
+    this._periodicScheduler = new PeriodicScheduler(
+      this.config,
+      this.leaderElector
+    );
+    await this._periodicScheduler.start();
+
     await this.heartbeat();
     this.startHeartbeat();
     this.startScheduler();
@@ -182,6 +200,11 @@ export class Runner {
     }
     this.stopping = true;
     await this.config.fireEvent("shutdown", { reverse: true });
+
+    // Stop periodic scheduler and leader election
+    await this._periodicScheduler?.stop();
+    await this.leaderElector?.stop();
+
     this.stopHeartbeat();
     this.stopScheduler();
     const deadline = Date.now() + this.config.timeout * 1000;
@@ -199,6 +222,20 @@ export class Runner {
       })
     );
     await this.config.fireEvent("exit", { reverse: true });
+  }
+
+  /**
+   * Returns true if this process is currently the leader.
+   */
+  leader(): boolean {
+    return this.leaderElector?.leader() ?? false;
+  }
+
+  /**
+   * Get the periodic scheduler for registering cron jobs.
+   */
+  get periodicScheduler(): PeriodicScheduler | undefined {
+    return this._periodicScheduler;
   }
 
   snapshotWork(): WorkSnapshot[] {

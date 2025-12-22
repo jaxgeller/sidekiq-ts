@@ -13,6 +13,8 @@ export interface LifecycleEvents {
   exit: LifecycleHandler[];
   heartbeat: LifecycleHandler[];
   beat: LifecycleHandler[];
+  leader: LifecycleHandler[];
+  follower: LifecycleHandler[];
 }
 
 export type ErrorHandler = (
