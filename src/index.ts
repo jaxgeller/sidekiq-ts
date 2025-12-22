@@ -2,6 +2,7 @@
 export {
   DeadSet,
   JobRecord,
+  Process,
   ProcessSet,
   Queue,
   RetrySet,

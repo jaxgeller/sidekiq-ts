@@ -58,6 +58,31 @@ export class CounterJob extends Job<[number]> {
   }
 }
 
+// Trackable job for duplicate detection in multiprocess testing
+export class TrackableJob extends Job<[string, number]> {
+  static sidekiqOptions = { retry: 3, queue: "simulation" };
+
+  async perform(jobId: string, delayMs: number) {
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const key = `tracked:${jobId}`;
+
+    // Atomic check-and-set to detect duplicates
+    const wasSet = await redis.setNX(key, `${Date.now()}`);
+    if (!wasSet) {
+      // Job was already processed - record duplicate
+      await redis.incr("stat:duplicates");
+      return;
+    }
+    await redis.expire(key, 3600); // 1 hour TTL
+
+    // Simulate work
+    await new Promise((r) => setTimeout(r, delayMs));
+
+    // Mark as completed
+    await redis.hSet("job:completions", jobId, Date.now().toString());
+  }
+}
+
 // Long-running iterable job for interruption testing
 export class LongIterableJob extends IterableJob<[number], number, number> {
   static sidekiqOptions = { retry: 0, queue: "simulation" };
@@ -108,4 +133,5 @@ export function registerAllJobs() {
   Sidekiq.registerJob(FlakyJob);
   Sidekiq.registerJob(CounterJob);
   Sidekiq.registerJob(LongIterableJob);
+  Sidekiq.registerJob(TrackableJob);
 }

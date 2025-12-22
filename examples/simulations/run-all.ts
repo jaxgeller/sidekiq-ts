@@ -78,6 +78,7 @@ async function main() {
     { script: "failure-modes.ts", name: "Failure Modes" },
     { script: "concurrency-test.ts", name: "Concurrency Testing" },
     { script: "chaos-test.ts", name: "Chaos Testing" },
+    { script: "multiprocess-test.ts", name: "Multiprocess Workload" },
   ];
 
   const results: TestResult[] = [];
