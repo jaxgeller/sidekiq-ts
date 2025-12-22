@@ -37,4 +37,33 @@ describe("config loader", () => {
     const { requirePaths } = await loadConfigFile(path);
     expect(requirePaths).toEqual(["./jobs/example.js"]);
   });
+
+  it("applies environment overrides from top-level keys", async () => {
+    const path = await writeConfig({
+      concurrency: 5,
+      require: "./jobs/base.js",
+      development: {
+        concurrency: 12,
+        require: "./jobs/dev.js",
+      },
+    });
+
+    const { config, requirePaths } = await loadConfigFile(path, { environment: "development" });
+    expect(config.concurrency).toBe(12);
+    expect(requirePaths).toEqual(["./jobs/dev.js"]);
+  });
+
+  it("applies environment overrides from environments map", async () => {
+    const path = await writeConfig({
+      timeout: 25,
+      environments: {
+        production: {
+          timeout: 60,
+        },
+      },
+    });
+
+    const { config } = await loadConfigFile(path, { environment: "production" });
+    expect(config.timeout).toBe(60);
+  });
 });

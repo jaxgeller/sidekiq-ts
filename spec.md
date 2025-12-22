@@ -170,9 +170,17 @@ JSON config (CLI)
   "maxRetries": 25,
   "deadMaxJobs": 10000,
   "deadTimeoutInSeconds": 15552000,
-  "require": ["./dist/jobs.js"]
+  "require": ["./dist/jobs.js"],
+  "environments": {
+    "production": {
+      "concurrency": 20,
+      "queues": ["critical", "default", "low"]
+    }
+  }
 }
 ```
+Environment overrides can be specified either under `environments.<name>` or as a top-level key
+named after the environment (the `environments` map wins if both exist).
 
 Config surface (initial)
 - `redis: { url: string; ... }`
@@ -235,8 +243,11 @@ Runner API
 - `Runner.stop()` (graceful shutdown)
 - `Runner.restart()` (optional)
 
-CLI (planned)
-- `sidekiq-ts` command reading a JSON config and starting a runner.
+CLI
+- `sidekiq-ts` command reads JSON config and starts a runner.
+- CLI flags override config file settings when provided.
+- Options: `-C/--config`, `-c/--concurrency`, `-e/--environment`, `-g/--tag`,
+  `-q/--queue`, `-r/--require`, `-t/--timeout`, `-v/--verbose`, `-V/--version`.
 
 ### Testing
 Testing mode mimics Sidekiq's fake/inline behavior.
@@ -335,7 +346,7 @@ Phase 6: Iterable jobs (done)
 - Execution metrics tracking + query API (`Sidekiq::Metrics::ExecutionTracker`, histograms, marks, query rollups).
 - Iterable enumerator helpers beyond arrays (e.g. CSV helpers; ActiveRecord helpers remain out of scope with no Rails).
 - Redis sharding/pools (`redis_pool`, `redis_info`, adapter), plus job-level `set(pool:)` targeting.
-- CLI parity (YAML/ERB config, daemonize/logfile/pidfile, env/require handling, signal handlers, `sidekiqmon` monitor CLI).
+- CLI parity gaps: YAML/ERB config support (JSON-only by design), `sidekiqmon` monitor CLI.
 - Systemd/sd_notify integration.
 - Logger level filtering (`with_level`, debug?/info? methods) and `Sidekiq::Component`-style `handle_exception` plumbing.
 

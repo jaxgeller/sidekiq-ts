@@ -5,6 +5,7 @@ import type { ConfigOptions } from "./types.js";
 
 export interface JsonConfig extends ConfigOptions {
   require?: string | string[];
+  environments?: Record<string, JsonConfig>;
 }
 
 export interface LoadedConfig {
@@ -13,16 +14,51 @@ export interface LoadedConfig {
   sourcePath: string;
 }
 
-export const loadConfigFile = async (path: string): Promise<LoadedConfig> => {
+export interface LoadConfigOptions {
+  environment?: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeRequire = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string");
+  }
+  if (typeof value === "string") {
+    return [value];
+  }
+  return [];
+};
+
+const resolveEnvironmentOverrides = (
+  parsed: Record<string, unknown>,
+  environment?: string
+): Record<string, unknown> => {
+  if (!environment) {
+    return {};
+  }
+  const direct = isRecord(parsed[environment]) ? parsed[environment] : {};
+  const envMap = isRecord(parsed.environments) ? parsed.environments : {};
+  const mapped = isRecord(envMap[environment]) ? envMap[environment] : {};
+  return { ...direct, ...mapped };
+};
+
+export const loadConfigFile = async (
+  path: string,
+  options: LoadConfigOptions = {}
+): Promise<LoadedConfig> => {
   const fullPath = resolve(path);
   const raw = await readFile(fullPath, "utf8");
-  const parsed = JSON.parse(raw) as JsonConfig;
-  const requirePaths = Array.isArray(parsed.require)
-    ? parsed.require
-    : parsed.require
-      ? [parsed.require]
-      : [];
-  const { require: _require, ...options } = parsed;
-  const config = new Config(options);
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  const envOverrides = resolveEnvironmentOverrides(parsed, options.environment);
+  const merged = { ...parsed, ...envOverrides } as Record<string, unknown>;
+  const requirePaths = normalizeRequire(merged.require);
+  delete merged.require;
+  delete merged.environments;
+  if (options.environment) {
+    delete merged[options.environment];
+  }
+  const config = new Config(merged as ConfigOptions);
   return { config, requirePaths, sourcePath: fullPath };
 };
