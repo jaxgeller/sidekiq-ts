@@ -204,12 +204,12 @@ Sidekiq.defaultConfiguration.redis = {
 Configure worker-specific options:
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.concurrency = 10;           // Worker threads (default: 5)
-  config.timeout = 30;               // Shutdown timeout in seconds (default: 25)
-  config.maxRetries = 25;            // Default retry limit (default: 25)
-  config.tag = "worker-1";           // Process tag for identification
-  config.labels = ["api", "prod"];   // Process labels
+Sidekiq.configureServer({
+  concurrency: 10,           // Worker threads (default: 5)
+  timeout: 30,               // Shutdown timeout in seconds (default: 25)
+  maxRetries: 25,            // Default retry limit (default: 25)
+  tag: "worker-1",           // Process tag for identification
+  labels: ["api", "prod"],   // Process labels
 });
 ```
 
@@ -218,8 +218,8 @@ Sidekiq.configureServer((config) => {
 Configure client-only options (for processes that only enqueue jobs):
 
 ```typescript
-Sidekiq.configureClient((config) => {
-  config.strictArgs = "raise"; // "raise" | "warn" | "none"
+Sidekiq.configureClient({
+  strictArgs: "raise", // "raise" | "warn" | "none"
 });
 ```
 
@@ -230,8 +230,8 @@ Sidekiq.configureClient((config) => {
 Process queues in random order with equal priority:
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.queues = ["default", "emails", "reports"];
+Sidekiq.configureServer({
+  queues: ["default", "emails", "reports"],
 });
 ```
 
@@ -240,12 +240,12 @@ Sidekiq.configureServer((config) => {
 Higher weights get proportionally more processing time:
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.queues = [
+Sidekiq.configureServer({
+  queues: [
     ["critical", 5],   // 5x weight
     ["default", 2],    // 2x weight
     ["background", 1], // 1x weight
-  ];
+  ],
 });
 ```
 
@@ -342,7 +342,7 @@ Environment-specific settings override the defaults when `NODE_ENV` matches.
 Intercept jobs during enqueueing:
 
 ```typescript
-import { Config } from "sidekiq-ts";
+import { Sidekiq } from "sidekiq-ts";
 
 class LoggingMiddleware {
   call(
@@ -357,9 +357,7 @@ class LoggingMiddleware {
   }
 }
 
-Sidekiq.configureClient((config) => {
-  config.clientMiddleware.add(LoggingMiddleware);
-});
+Sidekiq.useClientMiddleware(LoggingMiddleware);
 ```
 
 ### Server Middleware
@@ -383,9 +381,7 @@ class TimingMiddleware {
   }
 }
 
-Sidekiq.configureServer((config) => {
-  config.serverMiddleware.add(TimingMiddleware);
-});
+Sidekiq.useServerMiddleware(TimingMiddleware);
 ```
 
 ## Leader Election
@@ -404,14 +400,12 @@ if (runner.leader()) {
 ### Leader Lifecycle Events
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.lifecycleEvents.leader.push(() => {
-    console.log("Became leader");
-  });
+Sidekiq.on("leader", () => {
+  console.log("Became leader");
+});
 
-  config.lifecycleEvents.follower.push(() => {
-    console.log("Lost leadership");
-  });
+Sidekiq.on("follower", () => {
+  console.log("Lost leadership");
 });
 ```
 
@@ -579,11 +573,9 @@ await Testing.fake(async () => {
 Called for every job failure (including retries):
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.errorHandlers.push((error, context) => {
-    console.error(`Job failed: ${error.message}`);
-    // Send to error tracking service
-  });
+Sidekiq.on("error", (error, context) => {
+  console.error(`Job failed: ${error.message}`);
+  // Send to error tracking service
 });
 ```
 
@@ -592,33 +584,29 @@ Sidekiq.configureServer((config) => {
 Called when a job exhausts all retries:
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.deathHandlers.push((payload, error) => {
-    console.error(`Job ${payload.jid} died: ${error.message}`);
-    // Alert on-call, create incident ticket, etc.
-  });
+Sidekiq.on("death", (payload, error) => {
+  console.error(`Job ${payload.jid} died: ${error.message}`);
+  // Alert on-call, create incident ticket, etc.
 });
 ```
 
 ## Lifecycle Events
 
 ```typescript
-Sidekiq.configureServer((config) => {
-  config.lifecycleEvents.startup.push(() => {
-    console.log("Worker starting");
-  });
+Sidekiq.on("startup", () => {
+  console.log("Worker starting");
+});
 
-  config.lifecycleEvents.quiet.push(() => {
-    console.log("Worker quieting (no new jobs)");
-  });
+Sidekiq.on("quiet", () => {
+  console.log("Worker quieting (no new jobs)");
+});
 
-  config.lifecycleEvents.shutdown.push(() => {
-    console.log("Worker shutting down");
-  });
+Sidekiq.on("shutdown", () => {
+  console.log("Worker shutting down");
+});
 
-  config.lifecycleEvents.heartbeat.push(() => {
-    // Called every 10 seconds
-  });
+Sidekiq.on("heartbeat", () => {
+  // Called every 10 seconds
 });
 ```
 

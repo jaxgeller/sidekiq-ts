@@ -28,6 +28,15 @@ export type DeathHandler = (
   error: Error
 ) => void | Promise<void>;
 
+export type SidekiqEventName = keyof LifecycleEvents | "error" | "death";
+
+export type SidekiqEventHandler<TEvent extends SidekiqEventName> =
+  TEvent extends "error"
+    ? ErrorHandler
+    : TEvent extends "death"
+      ? DeathHandler
+      : LifecycleHandler;
+
 export interface LeaderElectionConfig {
   /** Leader refresh interval in milliseconds (default: 15000) */
   refreshInterval?: number;

@@ -1,11 +1,24 @@
 import { Config } from "./config.js";
 import { dumpJson, loadJson } from "./json.js";
+import type { MiddlewareConstructor } from "./middleware.js";
+import type { RedisClient } from "./redis.js";
 import {
   type RegisteredJobClass,
   registeredJob,
   registerJob,
 } from "./registry.js";
-import type { JobOptions, StrictArgsMode } from "./types.js";
+import type {
+  ConfigOptions,
+  DeathHandler,
+  ErrorHandler,
+  JobOptions,
+  JobPayload,
+  LifecycleEvents,
+  LifecycleHandler,
+  SidekiqEventHandler,
+  SidekiqEventName,
+  StrictArgsMode,
+} from "./types.js";
 
 // biome-ignore lint/complexity/noStaticOnlyClass: Sidekiq class provides namespace for configuration and utilities
 export class Sidekiq {
@@ -14,7 +27,7 @@ export class Sidekiq {
     "See LICENSE and the LGPL-3.0 for licensing details.";
 
   private static config = new Config();
-  private static configBlocks: ((config: Config) => void)[] = [];
+  private static serverConfigQueue: ConfigOptions[] = [];
   private static isServerMode = false;
   private static defaultJobOpts: JobOptions = {
     retry: true,
@@ -25,23 +38,57 @@ export class Sidekiq {
     return this.config;
   }
 
-  static configureServer(block: (config: Config) => void): void {
-    this.configBlocks.push(block);
+  static configureServer(options: ConfigOptions): void {
+    this.serverConfigQueue.push(options);
     if (this.isServerMode) {
-      block(this.config);
+      this.applyConfigOptions(options);
     }
   }
 
-  static configureClient(block: (config: Config) => void): void {
+  static configureClient(options: ConfigOptions): void {
     if (!this.isServerMode) {
-      block(this.config);
+      this.applyConfigOptions(options);
     }
+  }
+
+  static on<TEvent extends SidekiqEventName>(
+    event: TEvent,
+    handler: SidekiqEventHandler<TEvent>
+  ): void {
+    if (event === "error") {
+      this.config.errorHandlers.push(handler as ErrorHandler);
+      return;
+    }
+    if (event === "death") {
+      this.config.deathHandlers.push(handler as DeathHandler);
+      return;
+    }
+    this.config.lifecycleEvents[event as keyof LifecycleEvents].push(
+      handler as LifecycleHandler
+    );
+  }
+
+  static useClientMiddleware(
+    klass: MiddlewareConstructor<
+      [string | unknown, JobPayload, string, RedisClient],
+      JobPayload | false | null | undefined
+    >,
+    ...args: unknown[]
+  ): void {
+    this.config.clientMiddleware.use(klass, ...args);
+  }
+
+  static useServerMiddleware(
+    klass: MiddlewareConstructor<[unknown, JobPayload, string], unknown>,
+    ...args: unknown[]
+  ): void {
+    this.config.serverMiddleware.use(klass, ...args);
   }
 
   static markServerMode(): void {
     this.isServerMode = true;
-    for (const block of this.configBlocks) {
-      block(this.config);
+    for (const options of this.serverConfigQueue) {
+      this.applyConfigOptions(options);
     }
   }
 
@@ -62,6 +109,114 @@ export class Sidekiq {
 
   static logger() {
     return this.config.logger;
+  }
+
+  private static applyConfigOptions(options: ConfigOptions): void {
+    this.applyScalarOptions(options);
+    this.applyHandlerOptions(options);
+    this.applyLifecycleOptions(options.lifecycleEvents);
+  }
+
+  private static applyScalarOptions(options: ConfigOptions): void {
+    this.setIfDefined(options.redis, (value) => {
+      this.config.redis = value;
+    });
+    this.setIfDefined(options.concurrency, (value) => {
+      this.config.concurrency = value;
+    });
+    this.setIfDefined(options.queues, (value) => {
+      this.config.queues = value;
+    });
+    this.setIfDefined(options.timeout, (value) => {
+      this.config.timeout = value;
+    });
+    this.setIfDefined(options.pollIntervalAverage, (value) => {
+      this.config.pollIntervalAverage = value;
+    });
+    this.setIfDefined(options.averageScheduledPollInterval, (value) => {
+      this.config.averageScheduledPollInterval = value;
+    });
+    this.setIfDefined(options.heartbeatInterval, (value) => {
+      this.config.heartbeatInterval = value;
+    });
+    this.setIfDefined(options.tag, (value) => {
+      this.config.tag = value;
+    });
+    this.setIfDefined(options.labels, (value) => {
+      this.config.labels = value;
+    });
+    this.setIfDefined(options.maxRetries, (value) => {
+      this.config.maxRetries = value;
+    });
+    this.setIfDefined(options.deadMaxJobs, (value) => {
+      this.config.deadMaxJobs = value;
+    });
+    this.setIfDefined(options.deadTimeoutInSeconds, (value) => {
+      this.config.deadTimeoutInSeconds = value;
+    });
+    this.setIfDefined(options.backtraceCleaner, (value) => {
+      this.config.backtraceCleaner = value;
+    });
+    this.setIfDefined(options.maxIterationRuntime, (value) => {
+      this.config.maxIterationRuntime = value;
+    });
+    this.setIfDefined(options.skipDefaultJobLogging, (value) => {
+      this.config.skipDefaultJobLogging = value;
+    });
+    this.setIfDefined(options.loggedJobAttributes, (value) => {
+      this.config.loggedJobAttributes = value;
+    });
+    this.setIfDefined(options.profiler, (value) => {
+      this.config.profiler = value;
+    });
+    this.setIfDefined(options.jobLogger, (value) => {
+      this.config.jobLogger = value;
+    });
+    this.setIfDefined(options.strictArgs, (value) => {
+      this.config.strictArgs = value;
+    });
+    this.setIfDefined(options.logger, (value) => {
+      this.config.logger = value;
+    });
+    this.setIfDefined(options.redisIdleTimeout, (value) => {
+      this.config.redisIdleTimeout = value;
+    });
+    this.setIfDefined(options.leaderElection, (value) => {
+      this.config.leaderElection = value;
+    });
+  }
+
+  private static applyHandlerOptions(options: ConfigOptions): void {
+    this.setIfDefined(options.errorHandlers, (value) => {
+      this.config.errorHandlers.push(...value);
+    });
+    this.setIfDefined(options.deathHandlers, (value) => {
+      this.config.deathHandlers.push(...value);
+    });
+  }
+
+  private static applyLifecycleOptions(
+    events?: Partial<LifecycleEvents>
+  ): void {
+    if (!events) {
+      return;
+    }
+    for (const [event, handlers] of Object.entries(events)) {
+      if (handlers !== undefined) {
+        this.config.lifecycleEvents[event as keyof LifecycleEvents].push(
+          ...handlers
+        );
+      }
+    }
+  }
+
+  private static setIfDefined<T>(
+    value: T | undefined,
+    apply: (value: T) => void
+  ): void {
+    if (value !== undefined) {
+      apply(value);
+    }
   }
 
   static dumpJson(value: unknown): string {

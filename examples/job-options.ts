@@ -16,11 +16,11 @@ Sidekiq.defaultConfiguration.redis = { url: "redis://localhost:6379" };
 
 // Configure worker to process multiple queues with priority weights
 // Higher weight = more jobs processed from that queue
-Sidekiq.configureServer((config) => {
-  config.queues = [
+Sidekiq.configureServer({
+  queues: [
     ["critical", 3], // Process 3x more often
     ["default", 1],
-  ];
+  ],
 });
 
 // A job with custom options set via static property
