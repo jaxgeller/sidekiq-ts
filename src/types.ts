@@ -28,6 +28,15 @@ export type DeathHandler = (
   error: Error
 ) => void | Promise<void>;
 
+export interface LeaderElectionConfig {
+  /** Leader refresh interval in milliseconds (default: 15000) */
+  refreshInterval?: number;
+  /** Follower check interval in milliseconds (default: 60000) */
+  checkInterval?: number;
+  /** Leader key TTL in seconds (default: 20) */
+  ttl?: number;
+}
+
 export interface ConfigOptions {
   redis?: RedisClientOptions;
   concurrency?: number;
@@ -53,6 +62,8 @@ export interface ConfigOptions {
   lifecycleEvents?: Partial<LifecycleEvents>;
   logger?: Logger;
   redisIdleTimeout?: number | null;
+  /** Leader election configuration */
+  leaderElection?: LeaderElectionConfig;
 }
 
 export type JobRetryOption = boolean | number;

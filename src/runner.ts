@@ -167,6 +167,7 @@ export class Runner {
     // Start leader election
     this.leaderElector = new LeaderElector(this.config, {
       identity: this.identity,
+      ...this.config.leaderElection,
     });
     await this.leaderElector.start();
 

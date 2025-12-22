@@ -11,6 +11,7 @@ import type {
   ErrorHandler,
   JobLogger,
   JobPayload,
+  LeaderElectionConfig,
   LifecycleEvents,
   StrictArgsMode,
 } from "./types.js";
@@ -56,6 +57,7 @@ export class Config {
     JobPayload | false | null | undefined
   >;
   serverMiddleware: MiddlewareChain<[unknown, JobPayload, string], unknown>;
+  leaderElection: LeaderElectionConfig;
   private redisClient?: RedisClient;
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: config initialization requires many defaults
@@ -94,6 +96,7 @@ export class Config {
     this.jobLogger = options.jobLogger ?? new DefaultJobLogger(this);
     this.clientMiddleware = new MiddlewareChain(this);
     this.serverMiddleware = new MiddlewareChain(this);
+    this.leaderElection = options.leaderElection ?? {};
 
     if (this.errorHandlers.length === 0) {
       this.errorHandlers.push((error, context) => {
