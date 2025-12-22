@@ -5,6 +5,8 @@ import type { JobConstructor, RetriesExhaustedHandler, RetryInHandler } from "./
 import type { Config } from "./config.js";
 import type { JobPayload } from "./types.js";
 import { compressBacktrace, extractBacktrace } from "./backtrace.js";
+import { JobSkipError } from "./iterable_errors.js";
+import { ensureInterruptHandler } from "./interrupt_handler.js";
 import { hostname } from "node:os";
 
 const FETCH_TIMEOUT_SECONDS = 2;
@@ -130,6 +132,7 @@ export class Runner {
 
   async start(): Promise<void> {
     this.baseRedis = await this.config.getRedisClient();
+    ensureInterruptHandler(this.config);
     await this.heartbeat();
     this.startHeartbeat();
     this.startScheduler();
@@ -517,6 +520,9 @@ export class Runner {
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      if (err instanceof JobSkipError) {
+        return;
+      }
       await this.handleFailure(queue, payload, klass, err);
     }
   }

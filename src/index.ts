@@ -18,4 +18,11 @@ export { loadConfigFile } from "./config_loader.js";
 export { DefaultJobLogger } from "./job_logger.js";
 export { SidekiqLogger, Formatters, createLogger } from "./logger.js";
 export { Context } from "./context.js";
+export { IterableJob } from "./iterable.js";
+export {
+  IterableInterrupted,
+  JobSkipError,
+  IterableAbort,
+} from "./iterable_errors.js";
+export { InterruptHandler } from "./interrupt_handler.js";
 export type * from "./types.js";

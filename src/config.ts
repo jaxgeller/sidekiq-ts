@@ -38,6 +38,7 @@ export class Config {
   deadMaxJobs: number;
   deadTimeoutInSeconds: number;
   backtraceCleaner: (backtrace: string[]) => string[];
+  maxIterationRuntime: number | null;
   skipDefaultJobLogging: boolean;
   loggedJobAttributes: string[];
   profiler?: (payload: JobPayload, fn: () => Promise<void>) => Promise<void>;
@@ -76,6 +77,7 @@ export class Config {
     this.deadTimeoutInSeconds =
       options.deadTimeoutInSeconds ?? 180 * 24 * 60 * 60;
     this.backtraceCleaner = options.backtraceCleaner ?? ((backtrace) => backtrace);
+    this.maxIterationRuntime = options.maxIterationRuntime ?? null;
     this.skipDefaultJobLogging = options.skipDefaultJobLogging ?? false;
     this.loggedJobAttributes = options.loggedJobAttributes ?? ["tags"];
     this.profiler = options.profiler;

@@ -40,6 +40,7 @@ export interface ConfigOptions {
   deadMaxJobs?: number;
   deadTimeoutInSeconds?: number;
   backtraceCleaner?: (backtrace: string[]) => string[];
+  maxIterationRuntime?: number | null;
   skipDefaultJobLogging?: boolean;
   loggedJobAttributes?: string[];
   profiler?: (payload: JobPayload, fn: () => Promise<void>) => Promise<void>;

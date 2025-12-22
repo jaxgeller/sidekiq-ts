@@ -66,6 +66,28 @@ Job instance API
 - `logger()` (from config)
 - `interrupted(): boolean` (server shutdown awareness)
 
+### Iterable jobs
+Iterable jobs process a sequence of items with cursor-based resumption.
+
+```ts
+class ProcessItems extends IterableJob<[string], number, number> {
+  buildEnumerator(name: string, { cursor }: { cursor: number | null }) {
+    return this.arrayEnumerator([1, 2, 3], cursor);
+  }
+
+  async eachIteration(item: number, name: string) {
+    // process item
+  }
+}
+```
+
+Iterable job API
+- `buildEnumerator(...args, { cursor })` returns an iterator yielding `[item, updatedCursor]`
+- `eachIteration(item, ...args)` processes a single item
+- Hooks: `onStart`, `onResume`, `onStop`, `onCancel`, `onComplete`, `aroundIteration`
+- `cancel()` / `cancelled()` for cancellation
+- `currentObject` and `arguments()` helpers for hooks
+
 ### Logging + context
 Sidekiq attaches job metadata to log output via an AsyncLocalStorage-backed context.
 
@@ -173,6 +195,7 @@ Config surface (initial)
 - `deadMaxJobs: number` (default 10000)
 - `deadTimeoutInSeconds: number` (default 180 days)
 - `backtraceCleaner: (lines: string[]) => string[]`
+- `maxIterationRuntime: number | null` (seconds, for iterable jobs)
 
 ### Middleware
 Client and server middleware chains mirror Sidekiq's `call` pattern.
@@ -301,12 +324,13 @@ Phase 5: Operational parity (done)
 - Metrics history (processed/failed per-day stats).
 - Job log context (Context API + default logger formatting).
 
+Phase 6: Iterable jobs (done)
+- IterableJob base class with cursor persistence + cancellation.
+- Interrupt handler middleware and skip handling.
+- Array enumerator helper and basic tests.
+
 ## Gap Analysis vs Ruby Sidekiq (excluding Rails/ActiveJob/Capsules)
 - Execution metrics tracking + query API (`Sidekiq::Metrics::ExecutionTracker`, histograms, marks, query rollups).
-- Deploy marks (`Sidekiq::Deploy`) for timeline markers used by metrics/web UI.
-- Profiling persistence (`Sidekiq::Profiler` storing profiles in Redis, `profiles` ZSET + data hash).
-- Iterable jobs (`Sidekiq::IterableJob`, enumerators, interrupt handler, max_iteration_runtime).
-- Transaction-aware client (defers enqueue until commit).
 - Redis sharding/pools (`redis_pool`, `redis_info`, adapter), plus job-level `set(pool:)` targeting.
 - CLI parity (YAML/ERB config, daemonize/logfile/pidfile, env/require handling, signal handlers, `sidekiqmon` monitor CLI).
 - Systemd/sd_notify integration.

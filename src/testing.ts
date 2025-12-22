@@ -3,6 +3,7 @@ import { nowInMillis } from "./job_util.js";
 import { resolveJob } from "./registry.js";
 import type { Config } from "./config.js";
 import type { JobPayload } from "./types.js";
+import { ensureInterruptHandler } from "./interrupt_handler.js";
 
 export type TestMode = "disable" | "fake" | "inline";
 
@@ -70,6 +71,7 @@ export class Testing {
   }
 
   static async performInline(payload: JobPayload, config: Config): Promise<void> {
+    ensureInterruptHandler(config);
     const job = loadJson(dumpJson(payload)) as JobPayload;
     const className = String(job.class);
     const klass = resolveJob(className);

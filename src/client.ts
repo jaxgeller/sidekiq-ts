@@ -8,6 +8,7 @@ import {
   verifyJson,
   generateJid,
 } from "./job_util.js";
+import { ITERATION_STATE_TTL_SECONDS } from "./iterable_constants.js";
 import { Testing } from "./testing.js";
 import type {
   BulkPayload,
@@ -164,7 +165,7 @@ export class Client {
     const pipeline = redis.multi();
     pipeline.hSetNX(key, "cancelled", now);
     pipeline.hGet(key, "cancelled");
-    pipeline.expire(key, 86400, "NX");
+    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
     const result = await pipeline.exec();
     const cancelled = result?.[1] as unknown as string | null | undefined;
     return Boolean(Number(cancelled));
