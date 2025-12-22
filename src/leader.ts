@@ -19,6 +19,13 @@ const FOLLOWER_CHECK_INTERVAL_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const LUA_REFRESH_LEADER = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("set", KEYS[1], ARGV[1], "ex", ARGV[2])
+end
+return nil
+`;
+
 export interface LeaderElectorOptions {
   /** Leader refresh interval in milliseconds (default: 15000) */
   refreshInterval?: number;
@@ -41,6 +48,7 @@ export class LeaderElector {
   private isLeader = false;
   private running = false;
   private loopPromise?: Promise<void>;
+  private stopController?: AbortController;
 
   constructor(config: Config, options: LeaderElectorOptions = {}) {
     this.config = config;
@@ -61,6 +69,7 @@ export class LeaderElector {
 
     this.redis = await this.config.getRedisClient();
     this.running = true;
+    this.stopController = new AbortController();
 
     // Try to acquire leadership immediately on start
     await this.tryAcquire();
@@ -78,6 +87,7 @@ export class LeaderElector {
     }
 
     this.running = false;
+    this.stopController?.abort();
 
     // Release leadership on clean shutdown
     if (this.isLeader && this.redis) {
@@ -154,19 +164,10 @@ export class LeaderElector {
     }
 
     try {
-      // First verify we're still the leader
-      const current = await this.redis.get(LEADER_KEY);
-      if (current !== this.identity) {
-        // Someone else is leader, or key expired
-        return false;
-      }
-
-      // Extend the TTL
-      const result = await this.redis.set(LEADER_KEY, this.identity, {
-        XX: true,
-        EX: this.ttl,
+      const result = await this.redis.eval(LUA_REFRESH_LEADER, {
+        keys: [LEADER_KEY],
+        arguments: [this.identity, String(this.ttl)],
       });
-
       return result === "OK";
     } catch (error) {
       this.config.logger.error(
@@ -209,7 +210,26 @@ export class LeaderElector {
       const interval = this.isLeader
         ? this.refreshInterval
         : this.checkInterval;
-      await sleep(interval);
+      await this.sleepWithAbort(interval);
     }
+  }
+
+  private async sleepWithAbort(ms: number): Promise<void> {
+    const controller = this.stopController;
+    if (!controller || controller.signal.aborted) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        controller.signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timeout);
+        controller.signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 }
