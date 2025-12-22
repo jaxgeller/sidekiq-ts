@@ -331,6 +331,7 @@ Phase 6: Iterable jobs (done)
 
 ## Gap Analysis vs Ruby Sidekiq (excluding Rails/ActiveJob/Capsules)
 - Execution metrics tracking + query API (`Sidekiq::Metrics::ExecutionTracker`, histograms, marks, query rollups).
+- Iterable enumerator helpers beyond arrays (e.g. CSV helpers; ActiveRecord helpers remain out of scope with no Rails).
 - Redis sharding/pools (`redis_pool`, `redis_info`, adapter), plus job-level `set(pool:)` targeting.
 - CLI parity (YAML/ERB config, daemonize/logfile/pidfile, env/require handling, signal handlers, `sidekiqmon` monitor CLI).
 - Systemd/sd_notify integration.
