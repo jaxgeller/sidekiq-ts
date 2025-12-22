@@ -20,18 +20,18 @@ const baseOptions = (): CliOptions => ({
 const snapshotEnv = () => ({ ...process.env });
 
 const restoreEnv = (snapshot: NodeJS.ProcessEnv) => {
-  Object.keys(process.env).forEach((key) => {
+  for (const key of Object.keys(process.env)) {
     if (!(key in snapshot)) {
       delete process.env[key];
     }
-  });
-  Object.entries(snapshot).forEach(([key, value]) => {
+  }
+  for (const [key, value] of Object.entries(snapshot)) {
     if (value === undefined) {
       delete process.env[key];
     } else {
       process.env[key] = value;
     }
-  });
+  }
 };
 
 let envSnapshot = snapshotEnv();
@@ -92,14 +92,17 @@ describe("CLI helpers", () => {
     expect(resolveEnvironment()).toBe("app");
     expect(resolveEnvironment("cli")).toBe("cli");
 
+    // biome-ignore lint/performance/noDelete: delete required for env vars
     delete process.env.APP_ENV;
     process.env.NODE_ENV = "node";
     expect(resolveEnvironment()).toBe("node");
 
+    // biome-ignore lint/performance/noDelete: delete required for env vars
     delete process.env.NODE_ENV;
     process.env.RACK_ENV = "rack";
     expect(resolveEnvironment()).toBe("rack");
 
+    // biome-ignore lint/performance/noDelete: delete required for env vars
     delete process.env.RACK_ENV;
     process.env.RAILS_ENV = "rails";
     expect(resolveEnvironment()).toBe("rails");

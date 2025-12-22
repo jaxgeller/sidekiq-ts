@@ -5,7 +5,7 @@ import { Job, Sidekiq } from "../src/index.js";
 class RecorderJob extends Job<[number]> {
   static performed: number[] = [];
 
-  async perform(value: number) {
+  perform(value: number): void {
     RecorderJob.performed.push(value);
   }
 }

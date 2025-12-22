@@ -13,6 +13,7 @@ export class EmptyQueueError extends Error {
   }
 }
 
+// biome-ignore lint/complexity/noStaticOnlyClass: Testing class provides namespace for test mode management
 export class Testing {
   private static globalMode: TestMode = "disable";
   private static localMode: TestMode | null = null;
@@ -96,6 +97,7 @@ export class Testing {
   }
 }
 
+// biome-ignore lint/complexity/noStaticOnlyClass: Queues class provides namespace for test queue management
 export class Queues {
   private static jobsByQueue = new Map<string, JobPayload[]>();
   private static jobsByClass = new Map<string, JobPayload[]>();

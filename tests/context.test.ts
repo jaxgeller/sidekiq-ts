@@ -98,7 +98,7 @@ describe("Context", () => {
     let captured: Record<string, unknown> | null = null;
 
     await jobLogger.prepare(payload, async () => {
-      await jobLogger.call(payload, "default", async () => {
+      await jobLogger.call(payload, "default", () => {
         captured = { ...Context.current() };
       });
     });

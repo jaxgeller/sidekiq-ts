@@ -52,7 +52,7 @@ const registerSignal = (
 ) => {
   try {
     process.on(signal as NodeJS.Signals, () => {
-      void handler();
+      Promise.resolve(handler()).catch(() => undefined);
     });
   } catch {
     // Signal not supported on this platform.
@@ -118,6 +118,7 @@ const main = async () => {
     await runner.quiet();
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: signal handling needs detailed logging
   const dumpState = (signal: string) => {
     config.logger.warn(() => `Received ${signal}, dumping state`);
     const snapshot = runner.snapshotWork();
@@ -125,20 +126,23 @@ const main = async () => {
       config.logger.warn(() => "No active jobs");
     } else {
       config.logger.warn(() => `Active jobs: ${snapshot.length}`);
-      snapshot.forEach((entry) => {
+      for (const entry of snapshot) {
         const payload = entry.payload;
-        const className = payload
-          ? typeof payload.class === "string"
-            ? payload.class
-            : (payload.class?.name ?? String(payload.class))
-          : "unknown";
+        let className: string;
+        if (!payload) {
+          className = "unknown";
+        } else if (typeof payload.class === "string") {
+          className = payload.class;
+        } else {
+          className = payload.class?.name ?? String(payload.class);
+        }
         const jid = payload?.jid ?? "unknown";
         const elapsed = entry.elapsed.toFixed(3);
         config.logger.warn(
           () =>
             `Worker ${entry.workerId} class=${className} jid=${jid} queue=${entry.queue} elapsed=${elapsed}s`
         );
-      });
+      }
     }
     const stack = new Error("Signal stack").stack;
     if (stack) {

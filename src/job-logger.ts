@@ -3,8 +3,8 @@ import { Context } from "./context.js";
 import type { JobLogger, JobPayload } from "./types.js";
 
 export class DefaultJobLogger implements JobLogger {
-  private config: Config;
-  private skip: boolean;
+  private readonly config: Config;
+  private readonly skip: boolean;
 
   constructor(config: Config) {
     this.config = config;
@@ -49,7 +49,7 @@ export class DefaultJobLogger implements JobLogger {
   private log(
     fallbackLevel: "debug" | "info" | "warn" | "error",
     payload: JobPayload,
-    queue: string,
+    _queue: string,
     phase: "start" | "done" | "fail",
     start?: bigint
   ) {

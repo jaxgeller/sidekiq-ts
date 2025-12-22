@@ -96,6 +96,7 @@ describe("Logger formatters", () => {
       expect(messages[0]).not.toContain("T");
     } finally {
       if (previous === undefined) {
+        // biome-ignore lint/performance/noDelete: delete required for env vars
         delete process.env.DYNO;
       } else {
         process.env.DYNO = previous;

@@ -15,7 +15,7 @@ export type MiddlewareConstructor<TArgs extends unknown[], TResult> = new (
 };
 
 class MiddlewareEntry<TArgs extends unknown[], TResult> {
-  private config?: Config;
+  private readonly config?: Config;
   readonly klass: MiddlewareConstructor<TArgs, TResult>;
   readonly args: unknown[];
 
@@ -43,8 +43,8 @@ class MiddlewareEntry<TArgs extends unknown[], TResult> {
 }
 
 export class MiddlewareChain<TArgs extends unknown[], TResult> {
-  private config?: Config;
-  private entries: Array<MiddlewareEntry<TArgs, TResult>> = [];
+  private readonly config?: Config;
+  private entries: MiddlewareEntry<TArgs, TResult>[] = [];
 
   constructor(config?: Config) {
     this.config = config;
@@ -119,16 +119,18 @@ export class MiddlewareChain<TArgs extends unknown[], TResult> {
     this.entries = [];
   }
 
-  async invoke(...args: [...TArgs, MiddlewareNext<TResult>]): Promise<TResult> {
+  invoke(
+    ...args: [...TArgs, MiddlewareNext<TResult>]
+  ): Promise<TResult> | TResult {
     if (this.entries.length === 0) {
-      const last = args[args.length - 1] as MiddlewareNext<TResult>;
+      const last = args.at(-1) as MiddlewareNext<TResult>;
       return last();
     }
 
     const chain = this.entries.map((entry) => entry.makeNew());
-    const callNext = async (index: number): Promise<TResult> => {
+    const callNext = (index: number): Promise<TResult> | TResult => {
       if (index >= chain.length) {
-        const last = args[args.length - 1] as MiddlewareNext<TResult>;
+        const last = args.at(-1) as MiddlewareNext<TResult>;
         return last();
       }
       const middleware = chain[index];

@@ -4,6 +4,7 @@ export type ContextValue = unknown;
 
 export type ContextMap = Record<string, ContextValue>;
 
+// biome-ignore lint/complexity/noStaticOnlyClass: Context class provides namespace for async context management
 export class Context {
   private static storage = new AsyncLocalStorage<ContextMap>();
 

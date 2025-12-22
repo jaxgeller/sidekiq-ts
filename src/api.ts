@@ -9,7 +9,7 @@ const getRedis = async (config?: Config): Promise<RedisClient> =>
   (config ?? Sidekiq.defaultConfiguration).getRedisClient();
 
 export class Stats {
-  private config?: Config;
+  private readonly config?: Config;
 
   constructor(config?: Config) {
     this.config = config;
@@ -32,9 +32,9 @@ export class Stats {
       return 0;
     }
     const pipeline = redis.multi();
-    processes.forEach((key) => {
+    for (const key of processes) {
       pipeline.hGet(key, "busy");
-    });
+    }
     const result = await pipeline.exec();
     return (result ?? []).reduce((sum, value) => sum + Number(value ?? 0), 0);
   }
@@ -66,9 +66,9 @@ export class Stats {
       return 0;
     }
     const pipeline = redis.multi();
-    queues.forEach((queue) => {
+    for (const queue of queues) {
       pipeline.lLen(`queue:${queue}`);
-    });
+    }
     const result = await pipeline.exec();
     return (result ?? []).reduce((sum, value) => sum + Number(value ?? 0), 0);
   }
@@ -116,9 +116,9 @@ export class Stats {
     }
     const redis = await getRedis(this.config);
     const args: string[] = [];
-    allowed.forEach((stat) => {
+    for (const stat of allowed) {
       args.push(`stat:${stat}`, "0");
-    });
+    }
     await redis.mSet(args);
   }
 
@@ -129,11 +129,11 @@ export class Stats {
       return {};
     }
     const pipeline = redis.multi();
-    queues.forEach((queue) => {
+    for (const queue of queues) {
       pipeline.lLen(`queue:${queue}`);
-    });
+    }
     const result = await pipeline.exec();
-    const pairs: Array<[string, number]> = queues.map((queue, index) => [
+    const pairs: [string, number][] = queues.map((queue, index) => [
       queue,
       Number(result?.[index] ?? 0),
     ]);
@@ -143,9 +143,9 @@ export class Stats {
 }
 
 export class StatsHistory {
-  private config?: Config;
-  private daysPrevious: number;
-  private startDate: Date;
+  private readonly config?: Config;
+  private readonly daysPrevious: number;
+  private readonly startDate: Date;
 
   constructor(
     daysPrevious: number,
@@ -166,11 +166,11 @@ export class StatsHistory {
     );
   }
 
-  async processed(): Promise<Record<string, number>> {
+  processed(): Promise<Record<string, number>> {
     return this.dateStat("processed");
   }
 
-  async failed(): Promise<Record<string, number>> {
+  failed(): Promise<Record<string, number>> {
     return this.dateStat("failed");
   }
 
@@ -195,7 +195,7 @@ export class StatsHistory {
 }
 
 export class Queue {
-  private config?: Config;
+  private readonly config?: Config;
   readonly name: string;
 
   constructor(name = "default", config?: Config) {
@@ -294,7 +294,7 @@ export class JobRecord {
   readonly queue: string;
   readonly value: string;
   readonly payload: JobPayload;
-  private config?: Config;
+  private readonly config?: Config;
 
   constructor(value: string, queue: string, config?: Config) {
     this.value = value;
@@ -338,7 +338,7 @@ export class SortedEntry {
   readonly score: number;
   readonly payload: JobPayload;
   readonly value: string;
-  private parent: JobSet;
+  private readonly parent: JobSet;
 
   constructor(parent: JobSet, score: number, value: string) {
     this.parent = parent;
@@ -415,6 +415,7 @@ class JobSet extends SortedSet {
     } while (cursor !== "0");
   }
 
+  // biome-ignore lint/suspicious/useAwait: yield* delegates to an async generator
   async *each(): AsyncGenerator<SortedEntry> {
     yield* this.scan("*");
   }
@@ -572,7 +573,7 @@ export interface ProcessInfoEntry {
 }
 
 export class ProcessSet {
-  private config?: Config;
+  private readonly config?: Config;
 
   constructor(config?: Config) {
     this.config = config;
@@ -613,9 +614,9 @@ export class ProcessSet {
       return [];
     }
     const pipeline = redis.multi();
-    processes.forEach((key) => {
+    for (const key of processes) {
       pipeline.hGetAll(key);
-    });
+    }
     const result = await pipeline.exec();
     return processes.map((identity, index) => {
       const raw = (result?.[index] ?? {}) as unknown as Record<string, string>;
@@ -663,9 +664,9 @@ export class ProcessSet {
       return 0;
     }
     const pipeline = redis.multi();
-    processes.forEach((key) => {
+    for (const key of processes) {
       pipeline.hGet(key, "info");
-    });
+    }
     const result = await pipeline.exec();
     const toPrune = processes.filter((_, index) => !result?.[index]);
     if (toPrune.length === 0) {
@@ -685,7 +686,7 @@ export interface WorkerEntry {
 }
 
 export class Workers {
-  private config?: Config;
+  private readonly config?: Config;
 
   constructor(config?: Config) {
     this.config = config;
@@ -698,14 +699,14 @@ export class Workers {
       return [];
     }
     const pipeline = redis.multi();
-    processes.forEach((key) => {
+    for (const key of processes) {
       pipeline.hGetAll(`${key}:work`);
-    });
+    }
     const result = await pipeline.exec();
     const entries: WorkerEntry[] = [];
-    processes.forEach((identity, index) => {
+    for (const [index, identity] of processes.entries()) {
       const work = (result?.[index] ?? {}) as unknown as Record<string, string>;
-      Object.entries(work).forEach(([thread, value]) => {
+      for (const [thread, value] of Object.entries(work)) {
         const parsed = loadJson(value) as {
           queue: string;
           payload: string;
@@ -719,8 +720,8 @@ export class Workers {
           payload,
           run_at: parsed.run_at,
         });
-      });
-    });
+      }
+    }
     return entries;
   }
 }

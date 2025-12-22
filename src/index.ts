@@ -1,3 +1,4 @@
+// biome-ignore lint/performance/noBarrelFile: package entry point requires re-exports
 export {
   DeadSet,
   JobRecord,

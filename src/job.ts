@@ -11,6 +11,7 @@ import type {
 
 const OPTIONS_KEY = Symbol("sidekiqOptions");
 
+// biome-ignore lint/style/useConsistentTypeDefinitions: type alias needed for constructor signature
 export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   new (): Job<TArgs>;
   name: string;
@@ -192,7 +193,7 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     }
   }
 
-  static async clientPush(
+  static clientPush(
     this: JobConstructor,
     item: JobPayload
   ): Promise<string | null> {
@@ -223,10 +224,10 @@ export type RetryInHandler = (
 export type RetriesExhaustedHandler = (
   payload: JobPayload,
   error: Error
-) => "discard" | void;
+) => "discard" | undefined;
 
 export class JobSetter<TArgs extends unknown[] = unknown[]> {
-  private klass: JobConstructor<TArgs>;
+  private readonly klass: JobConstructor<TArgs>;
   private options: JobSetterOptions;
 
   constructor(klass: JobConstructor<TArgs>, options: JobSetterOptions) {
@@ -236,8 +237,8 @@ export class JobSetter<TArgs extends unknown[] = unknown[]> {
     const interval = this.options.waitUntil ?? this.options.wait;
     if (interval !== undefined) {
       this.at(interval);
-      delete this.options.wait;
-      delete this.options.waitUntil;
+      this.options.wait = undefined;
+      this.options.waitUntil = undefined;
     }
   }
 
@@ -246,8 +247,8 @@ export class JobSetter<TArgs extends unknown[] = unknown[]> {
     const interval = merged.waitUntil ?? merged.wait;
     if (interval !== undefined) {
       this.at(interval);
-      delete merged.wait;
-      delete merged.waitUntil;
+      merged.wait = undefined;
+      merged.waitUntil = undefined;
     }
     this.options = {
       ...this.options,
@@ -317,7 +318,7 @@ export class JobSetter<TArgs extends unknown[] = unknown[]> {
     if (ts > now) {
       this.options.at = ts;
     } else {
-      delete this.options.at;
+      this.options.at = undefined;
     }
     return this;
   }

@@ -16,8 +16,8 @@ import type { BulkPayload, JobClassLike, JobPayload } from "./types.js";
 const redisContext = new AsyncLocalStorage<RedisClient>();
 
 export class Client {
-  private config: Config;
-  private redisClient?: RedisClient;
+  private readonly config: Config;
+  private readonly redisClient?: RedisClient;
 
   constructor({
     config,
@@ -64,6 +64,7 @@ export class Client {
     return payload.jid ?? null;
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: bulk push validation is inherently complex
   async pushBulk(items: BulkPayload): Promise<(string | null)[]> {
     const batchSize = items.batch_size ?? 1000;
     const args = items.args;
@@ -113,10 +114,10 @@ export class Client {
       ...(items as Record<string, unknown>),
       args,
     } as JobPayload;
-    delete (base as Record<string, unknown>).batch_size;
-    delete (base as Record<string, unknown>).spread_interval;
-    delete (base as Record<string, unknown>).at;
-    delete (base as Record<string, unknown>).jid;
+    (base as Record<string, unknown>).batch_size = undefined;
+    (base as Record<string, unknown>).spread_interval = undefined;
+    (base as Record<string, unknown>).at = undefined;
+    (base as Record<string, unknown>).jid = undefined;
     const normalized = normalizeItem(base, Sidekiq.defaultJobOptions());
 
     const results: Array<string | null> = [];
@@ -183,22 +184,23 @@ export class Client {
     return Boolean(Number(cancelled));
   }
 
-  static async push(item: JobPayload): Promise<string | null> {
+  // biome-ignore lint/suspicious/useAdjacentOverloadSignatures: static methods are grouped separately from instance methods
+  static push(item: JobPayload): Promise<string | null> {
     return new Client().push(item);
   }
 
-  static async pushBulk(items: BulkPayload): Promise<(string | null)[]> {
+  static pushBulk(items: BulkPayload): Promise<(string | null)[]> {
     return new Client().pushBulk(items);
   }
 
-  static async enqueue<TArgs extends unknown[]>(
+  static enqueue<TArgs extends unknown[]>(
     klass: JobClassLike,
     ...args: TArgs
   ): Promise<string | null> {
     return Client.push({ class: klass, args });
   }
 
-  static async enqueueTo<TArgs extends unknown[]>(
+  static enqueueTo<TArgs extends unknown[]>(
     queue: string,
     klass: JobClassLike,
     ...args: TArgs
@@ -206,7 +208,7 @@ export class Client {
     return Client.push({ class: klass, queue, args });
   }
 
-  static async enqueueToIn<TArgs extends unknown[]>(
+  static enqueueToIn<TArgs extends unknown[]>(
     queue: string,
     interval: number,
     klass: JobClassLike,
@@ -221,7 +223,7 @@ export class Client {
     return Client.push(payload);
   }
 
-  static async enqueueIn<TArgs extends unknown[]>(
+  static enqueueIn<TArgs extends unknown[]>(
     interval: number,
     klass: JobClassLike,
     ...args: TArgs
@@ -233,17 +235,20 @@ export class Client {
     return Client.enqueueToIn(queue, interval, klass, ...args);
   }
 
-  static async via<T>(redis: RedisClient, fn: () => Promise<T>): Promise<T> {
+  static via<T>(redis: RedisClient, fn: () => Promise<T>): Promise<T> {
     return redisContext.run(redis, fn);
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: push logic requires handling multiple cases
   private async rawPush(payloads: JobPayload[]): Promise<void> {
     if (payloads.length === 0) {
       return;
     }
     const testMode = Testing.mode();
     if (testMode === "fake") {
-      payloads.forEach((payload) => Testing.enqueue(payload));
+      for (const payload of payloads) {
+        Testing.enqueue(payload);
+      }
       return;
     }
     if (testMode === "inline") {
@@ -258,9 +263,7 @@ export class Client {
     if (payloads[0].at !== undefined) {
       for (const payload of payloads) {
         const at = payload.at as number;
-        const copy = { ...payload };
-        delete copy.at;
-        delete copy.enqueued_at;
+        const { at: _at, enqueued_at: _enqueuedAt, ...copy } = payload;
         pipeline.zAdd("schedule", [{ score: at, value: dumpJson(copy) }]);
       }
     } else {

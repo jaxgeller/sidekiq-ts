@@ -10,7 +10,7 @@ class MiddlewareJob extends Job<[number]> {
 }
 
 class QueueSwitchMiddleware {
-  async call(
+  call(
     _jobClass: unknown,
     payload: { args: number[]; queue: string },
     _queue: string,
@@ -23,7 +23,7 @@ class QueueSwitchMiddleware {
 }
 
 class StopMiddleware {
-  async call(
+  call(
     _jobClass: unknown,
     _payload: unknown,
     _queue: string,

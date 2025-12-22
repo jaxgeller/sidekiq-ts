@@ -54,10 +54,10 @@ export const loadConfigFile = async (
   const envOverrides = resolveEnvironmentOverrides(parsed, options.environment);
   const merged = { ...parsed, ...envOverrides } as Record<string, unknown>;
   const requirePaths = normalizeRequire(merged.require);
-  delete merged.require;
-  delete merged.environments;
+  merged.require = undefined;
+  merged.environments = undefined;
   if (options.environment) {
-    delete merged[options.environment];
+    merged[options.environment] = undefined;
   }
   const config = new Config(merged as ConfigOptions);
   return { config, requirePaths, sourcePath: fullPath };

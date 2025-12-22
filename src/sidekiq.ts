@@ -7,13 +7,14 @@ import {
 } from "./registry.js";
 import type { JobOptions, StrictArgsMode } from "./types.js";
 
+// biome-ignore lint/complexity/noStaticOnlyClass: Sidekiq class provides namespace for configuration and utilities
 export class Sidekiq {
   static readonly NAME = "Sidekiq";
   static readonly LICENSE =
     "See LICENSE and the LGPL-3.0 for licensing details.";
 
   private static config = new Config();
-  private static configBlocks: Array<(config: Config) => void> = [];
+  private static configBlocks: ((config: Config) => void)[] = [];
   private static isServerMode = false;
   private static defaultJobOpts: JobOptions = {
     retry: true,

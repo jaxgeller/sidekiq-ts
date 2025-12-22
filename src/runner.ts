@@ -30,7 +30,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 type QueueMode = "strict" | "random" | "weighted";
 
 const parseQueues = (
-  queues: string[] | Array<[string, number]>
+  queues: string[] | [string, number][]
 ): { list: string[]; mode: QueueMode } => {
   const weights = new Map<string, number>();
   const list: string[] = [];
@@ -56,11 +56,14 @@ const parseQueues = (
   }
 
   const allWeights = Array.from(weights.values());
-  const mode = allWeights.every((weight) => weight === 0)
-    ? "strict"
-    : allWeights.every((weight) => weight === 1)
-      ? "random"
-      : "weighted";
+  let mode: QueueMode;
+  if (allWeights.every((weight) => weight === 0)) {
+    mode = "strict";
+  } else if (allWeights.every((weight) => weight === 1)) {
+    mode = "random";
+  } else {
+    mode = "weighted";
+  }
 
   return { list, mode };
 };
@@ -87,10 +90,10 @@ const unique = (values: string[]): string[] => {
 };
 
 class QueueStrategy {
-  private list: string[];
-  private mode: QueueMode;
+  private readonly list: string[];
+  private readonly mode: QueueMode;
 
-  constructor(queues: string[] | Array<[string, number]>) {
+  constructor(queues: string[] | [string, number][]) {
     const parsed = parseQueues(queues);
     this.list = parsed.list;
     this.mode = parsed.mode;
@@ -118,26 +121,30 @@ export interface WorkSnapshot {
 }
 
 export class Runner {
-  private config: Config;
+  private readonly config: Config;
   private quieting = false;
   private stopping = false;
-  private workers: Array<Promise<void>> = [];
+  private readonly workers: Promise<void>[] = [];
   private schedulerHandle?: NodeJS.Timeout;
   private heartbeatHandle?: NodeJS.Timeout;
-  private queueStrategy: QueueStrategy;
+  private readonly queueStrategy: QueueStrategy;
   private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
-  private workerRedis: Array<Awaited<ReturnType<Config["getRedisClient"]>>> =
-    [];
-  private identity: string;
-  private startedAt: number;
-  private workState = new Map<
+  private readonly workerRedis: Awaited<
+    ReturnType<Config["getRedisClient"]>
+  >[] = [];
+  private readonly identity: string;
+  private readonly startedAt: number;
+  private readonly workState = new Map<
     string,
     { queue: string; payload: string; runAt: number }
   >();
-  private inProgress = new Map<string, { queue: string; payload: string }>();
+  private readonly inProgress = new Map<
+    string,
+    { queue: string; payload: string }
+  >();
   private lastCleanupAt = 0;
-  private rttReadings: number[] = [];
-  private jobLogger: Config["jobLogger"];
+  private readonly rttReadings: number[] = [];
+  private readonly jobLogger: Config["jobLogger"];
 
   constructor(config: Config) {
     this.config = config;
@@ -161,7 +168,7 @@ export class Runner {
     }
   }
 
-  async quiet(): Promise<void> {
+  quiet(): void {
     this.quieting = true;
   }
 
@@ -211,7 +218,7 @@ export class Runner {
   private startScheduler(): void {
     const intervalMs = this.config.averageScheduledPollInterval * 1000;
     this.schedulerHandle = setInterval(() => {
-      void this.enqueueScheduled();
+      this.enqueueScheduled().catch(() => undefined);
     }, intervalMs);
   }
 
@@ -401,9 +408,9 @@ export class Runner {
       return;
     }
     const pipeline = redis.multi();
-    processes.forEach((key) => {
+    for (const key of processes) {
       pipeline.hGet(key, "info");
-    });
+    }
     const result = await pipeline.exec();
     const toPrune = processes.filter((_, index) => !result?.[index]);
     if (toPrune.length > 0) {
@@ -414,7 +421,7 @@ export class Runner {
   private startHeartbeat(): void {
     const intervalMs = this.config.heartbeatInterval * 1000;
     this.heartbeatHandle = setInterval(() => {
-      void this.heartbeat();
+      this.heartbeat().catch(() => undefined);
     }, intervalMs);
   }
 
@@ -476,13 +483,13 @@ export class Runner {
         payload: unit.payload,
         runAt: Date.now(),
       });
-      void this.heartbeat();
+      this.heartbeat().catch(() => undefined);
       try {
         await this.processJob(unit.queue, unit.payload);
       } finally {
         this.inProgress.delete(workerId);
         this.workState.delete(workerId);
-        void this.heartbeat();
+        this.heartbeat().catch(() => undefined);
       }
     }
   }
@@ -516,7 +523,6 @@ export class Runner {
   }
 
   private async processJob(queue: string, payloadRaw: string): Promise<void> {
-    const redis = await this.config.getRedisClient();
     let payload: JobPayload;
     try {
       payload = loadJson(payloadRaw) as JobPayload;
@@ -587,6 +593,7 @@ export class Runner {
     }
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: retry logic requires handling many edge cases
   private async handleFailure(
     queue: string,
     payload: JobPayload,
@@ -735,7 +742,7 @@ export class Runner {
     error: Error,
     handler?: RetriesExhaustedHandler
   ): Promise<void> {
-    let handlerResult: "discard" | void = undefined;
+    let handlerResult: "discard" | undefined;
     if (handler) {
       try {
         handlerResult = handler(payload, error);

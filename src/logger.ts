@@ -38,22 +38,28 @@ const formatContext = (context?: Record<string, unknown>): string => {
     .join(" ");
 };
 
-const upperLevel = (level: LogLevel): string =>
-  level === "debug"
-    ? "DEBUG"
-    : level === "info"
-      ? "INFO"
-      : level === "warn"
-        ? "WARN"
-        : "ERROR";
+const upperLevel = (level: LogLevel): string => {
+  if (level === "debug") {
+    return "DEBUG";
+  }
+  if (level === "info") {
+    return "INFO";
+  }
+  if (level === "warn") {
+    return "WARN";
+  }
+  return "ERROR";
+};
 
 const threadToken = (): string => {
+  // biome-ignore lint/suspicious/noBitwiseOperators: XOR for unique thread token
   const token = process.pid ^ (threadId + 1);
+  // biome-ignore lint/suspicious/noBitwiseOperators: unsigned right shift for positive value
   return (token >>> 0).toString(36);
 };
 
 export class BaseFormatter {
-  private tidToken = threadToken();
+  private readonly tidToken = threadToken();
 
   protected tid(): string {
     return this.tidToken;
@@ -138,7 +144,7 @@ export const Formatters = {
 
 export class SidekiqLogger implements Logger {
   formatter: Formatter;
-  private base: Console;
+  private readonly base: Console;
 
   constructor(
     base: Console = console,

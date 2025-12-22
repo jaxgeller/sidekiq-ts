@@ -24,6 +24,7 @@ const parsePositiveInt = (value: string, flag: string): number => {
 
 const parseArgs = (
   argv: string[]
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI argument parsing is inherently complex
 ): BenchmarkOptions & { showHelp: boolean } => {
   const args = argv.slice(2);
   const options: BenchmarkOptions & { showHelp: boolean } = {
@@ -118,10 +119,10 @@ Options:
 };
 
 const nullLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
 };
 
 const formatRate = (count: number, durationMs: number): string => {
@@ -151,7 +152,7 @@ const main = async () => {
   });
 
   class BenchmarkJob extends Job<[]> {
-    async perform() {
+    perform() {
       completed += 1;
       if (completed === options.jobs) {
         resolveDone?.();

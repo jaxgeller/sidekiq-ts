@@ -27,7 +27,7 @@ const DEFAULT_LIFECYCLE_EVENTS: LifecycleEvents = {
 export class Config {
   redis: RedisClientOptions;
   concurrency: number;
-  queues: string[] | Array<[string, number]>;
+  queues: string[] | [string, number][];
   timeout: number;
   pollIntervalAverage: number | null;
   averageScheduledPollInterval: number;
@@ -56,6 +56,7 @@ export class Config {
   serverMiddleware: MiddlewareChain<[unknown, JobPayload, string], unknown>;
   private redisClient?: RedisClient;
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: config initialization requires many defaults
   constructor(options: ConfigOptions = {}) {
     this.redis = options.redis ?? {
       url: process.env.REDIS_URL ?? "redis://localhost:6379/0",
@@ -104,7 +105,7 @@ export class Config {
   }
 
   async getRedisClient(): Promise<RedisClient> {
-    if (this.redisClient && this.redisClient.isOpen) {
+    if (this.redisClient?.isOpen) {
       return this.redisClient;
     }
     const client = createClient(this.redis);
@@ -117,7 +118,7 @@ export class Config {
   }
 
   async close(): Promise<void> {
-    if (this.redisClient && this.redisClient.isOpen) {
+    if (this.redisClient?.isOpen) {
       await this.redisClient.quit();
     }
   }

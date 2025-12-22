@@ -12,7 +12,7 @@ import { Job, Queues, Sidekiq, Testing } from "../src/index.js";
 class TestJob extends Job<[number]> {
   static performed: number[] = [];
 
-  async perform(value: number) {
+  perform(value: number): void {
     TestJob.performed.push(value);
   }
 }

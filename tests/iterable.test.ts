@@ -12,7 +12,9 @@ import { generateJid } from "../src/job-util.js";
 import { Sidekiq } from "../src/sidekiq.js";
 
 class MissingBuildEnumeratorJob extends IterableJob<[]> {
-  async eachIteration() {}
+  eachIteration(): void {
+    // noop for test
+  }
 }
 
 class MissingEachIterationJob extends IterableJob<[]> {
@@ -26,7 +28,9 @@ class NilEnumeratorJob extends IterableJob<[]> {
     return null;
   }
 
-  async eachIteration() {}
+  eachIteration(): void {
+    // noop for test
+  }
 }
 
 class ArrayIterableJob extends IterableJob<[], number, number> {
@@ -45,7 +49,7 @@ class ArrayIterableJob extends IterableJob<[], number, number> {
     return this.arrayEnumerator([10, 11, 12, 13, 14], cursor);
   }
 
-  async eachIteration(value: number) {
+  eachIteration(value: number): void {
     ArrayIterableJob.iterated.push(value);
     this.runIterations += 1;
   }
@@ -57,23 +61,23 @@ class ArrayIterableJob extends IterableJob<[], number, number> {
     );
   }
 
-  async onStart() {
+  onStart(): void {
     ArrayIterableJob.onStartCalled += 1;
   }
 
-  async onResume() {
+  onResume(): void {
     ArrayIterableJob.onResumeCalled += 1;
   }
 
-  async onStop() {
+  onStop(): void {
     ArrayIterableJob.onStopCalled += 1;
   }
 
-  async onCancel() {
+  onCancel(): void {
     ArrayIterableJob.onCancelCalled += 1;
   }
 
-  async onComplete() {
+  onComplete(): void {
     ArrayIterableJob.onCompleteCalled += 1;
   }
 }

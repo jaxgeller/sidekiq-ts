@@ -108,9 +108,9 @@ export const normalizeItem = (
     throw new Error("Job must include a valid queue name");
   }
 
-  TRANSIENT_ATTRIBUTES.forEach((key) => {
-    delete merged[key];
-  });
+  for (const key of TRANSIENT_ATTRIBUTES) {
+    merged[key] = undefined;
+  }
 
   merged.jid = merged.jid ?? generateJid();
   if (typeof merged.class === "function") {
@@ -136,6 +136,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return proto === Object.prototype || proto === null;
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: type checking for JSON requires many cases
 const jsonUnsafe = (value: unknown): unknown => {
   if (value === null) {
     return null;

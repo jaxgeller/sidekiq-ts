@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   DeadSet,
+  type JobRecord,
   ProcessSet,
   Queue,
   RetrySet,
@@ -44,7 +45,7 @@ describe("Data API actions", () => {
     await redis.sAdd("queues", ["default"]);
 
     const queue = new Queue("default");
-    const records = [];
+    const records: JobRecord[] = [];
     for await (const record of queue.each()) {
       records.push(record);
     }

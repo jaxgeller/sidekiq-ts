@@ -74,11 +74,26 @@ export class IterableJob<
     return Boolean(this.cancelledValue);
   }
 
-  async onStart(): Promise<void> {}
-  async onResume(): Promise<void> {}
-  async onStop(): Promise<void> {}
-  async onCancel(): Promise<void> {}
-  async onComplete(): Promise<void> {}
+  // biome-ignore lint/suspicious/useAwait: lifecycle hook may be overridden with async implementation
+  async onStart(): Promise<void> {
+    return undefined;
+  }
+  // biome-ignore lint/suspicious/useAwait: lifecycle hook may be overridden with async implementation
+  async onResume(): Promise<void> {
+    return undefined;
+  }
+  // biome-ignore lint/suspicious/useAwait: lifecycle hook may be overridden with async implementation
+  async onStop(): Promise<void> {
+    return undefined;
+  }
+  // biome-ignore lint/suspicious/useAwait: lifecycle hook may be overridden with async implementation
+  async onCancel(): Promise<void> {
+    return undefined;
+  }
+  // biome-ignore lint/suspicious/useAwait: lifecycle hook may be overridden with async implementation
+  async onComplete(): Promise<void> {
+    return undefined;
+  }
 
   async aroundIteration(fn: () => Promise<void> | void): Promise<void> {
     await fn();
@@ -92,7 +107,7 @@ export class IterableJob<
     );
   }
 
-  async eachIteration(_item: TItem, ..._args: TArgs): Promise<void> {
+  eachIteration(_item: TItem, ..._args: TArgs): Promise<void> {
     throw new Error(
       `${this.constructor.name} must implement an 'eachIteration' method`
     );

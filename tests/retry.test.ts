@@ -5,7 +5,7 @@ import { Job, Sidekiq } from "../src/index.js";
 class FailingJob extends Job<[number]> {
   static sidekiqOptions = { retry: 1 };
 
-  async perform(_value: number) {
+  perform(_value: number): never {
     throw new Error("boom");
   }
 }
@@ -13,7 +13,7 @@ class FailingJob extends Job<[number]> {
 class DeadJob extends Job<[string]> {
   static sidekiqOptions = { retry: 0 };
 
-  async perform(_value: string) {
+  perform(_value: string): never {
     throw new Error("nope");
   }
 }
@@ -21,7 +21,7 @@ class DeadJob extends Job<[string]> {
 class BacktraceJob extends Job<[number]> {
   static sidekiqOptions = { retry: 1, backtrace: 2 };
 
-  async perform(_value: number) {
+  perform(_value: number): never {
     throw new Error("backtrace");
   }
 }

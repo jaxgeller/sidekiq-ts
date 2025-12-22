@@ -25,6 +25,7 @@ const parseNumber = (value: string, flag: string): number => {
   return parsed;
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI argument parsing is inherently complex
 export const parseArgs = (argv: string[]): CliOptions => {
   const args = argv.slice(2);
   const options: CliOptions = {
@@ -148,7 +149,7 @@ export const resolveEnvironment = (cliEnv?: string): string | undefined =>
   process.env.RAILS_ENV;
 
 const suppressDebug = (logger: Logger): Logger => ({
-  debug: () => {},
+  debug: () => undefined,
   info: logger.info.bind(logger),
   warn: logger.warn.bind(logger),
   error: logger.error.bind(logger),

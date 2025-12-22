@@ -79,7 +79,9 @@ describe("Client", () => {
     });
 
     expect(result).toHaveLength(2);
-    result.forEach((jid) => expect(jid).toHaveLength(24));
+    for (const jid of result) {
+      expect(jid).toHaveLength(24);
+    }
 
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();
     const entries = await redis.lRange("queue:critical", 0, -1);

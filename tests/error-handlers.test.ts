@@ -15,7 +15,7 @@ import { PlainFormatter } from "../src/logger.js";
 class ErrorJob extends Job<[]> {
   static sidekiqOptions = { retry: false };
 
-  async perform() {
+  perform(): void {
     throw new Error("boom");
   }
 }

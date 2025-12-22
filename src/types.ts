@@ -29,7 +29,7 @@ export type DeathHandler = (
 export interface ConfigOptions {
   redis?: RedisClientOptions;
   concurrency?: number;
-  queues?: string[] | Array<[string, number]>;
+  queues?: string[] | [string, number][];
   timeout?: number;
   pollIntervalAverage?: number | null;
   averageScheduledPollInterval?: number;

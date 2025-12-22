@@ -13,14 +13,14 @@ class RecorderLogger implements JobLogger {
   prepareCalls = 0;
   callCalls = 0;
 
-  async prepare<T>(payload: JobPayload, fn: () => Promise<T> | T): Promise<T> {
+  async prepare<T>(_payload: JobPayload, fn: () => Promise<T> | T): Promise<T> {
     this.prepareCalls += 1;
     return await fn();
   }
 
   async call<T>(
-    payload: JobPayload,
-    queue: string,
+    _payload: JobPayload,
+    _queue: string,
     fn: () => Promise<T> | T
   ): Promise<T> {
     this.callCalls += 1;
