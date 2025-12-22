@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Context, SidekiqLogger } from "../src/index.js";
+import { Context } from "../src/context.js";
 import {
   createLogger,
   Formatters,
   JsonFormatter,
   PlainFormatter,
+  SidekiqLogger,
 } from "../src/logger.js";
 
 const fakeConsole = (messages: string[]) =>

@@ -9,7 +9,8 @@
  * Run with: npx tsx examples/scheduled-jobs.ts
  */
 
-import { Job, Sidekiq } from "../src/index.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 Sidekiq.defaultConfiguration.redis = { url: "redis://localhost:6379" };
 

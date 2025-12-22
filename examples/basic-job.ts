@@ -10,7 +10,8 @@
  * Run with: npx tsx examples/basic-job.ts
  */
 
-import { Job, Sidekiq } from "../src/index.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 // Configure Redis connection
 Sidekiq.defaultConfiguration.redis = { url: "redis://localhost:6379" };

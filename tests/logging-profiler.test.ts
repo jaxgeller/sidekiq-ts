@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { DefaultJobLogger, Job, Sidekiq } from "../src/index.js";
+import { Job } from "../src/job.js";
+import { DefaultJobLogger } from "../src/job-logger.js";
+import { Sidekiq } from "../src/sidekiq.js";
 import type { JobLogger, JobPayload } from "../src/types.js";
 
 class LogJob extends Job<[number]> {

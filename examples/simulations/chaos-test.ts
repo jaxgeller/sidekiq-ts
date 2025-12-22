@@ -6,14 +6,9 @@
  * Run with: npx tsx examples/simulations/chaos-test.ts
  */
 
-import {
-  Config,
-  DeadSet,
-  Queue,
-  RetrySet,
-  Sidekiq,
-  Stats,
-} from "../../src/index.js";
+import { DeadSet, Queue, RetrySet, Stats } from "../../src/api.js";
+import { Config } from "../../src/config.js";
+import { Sidekiq } from "../../src/sidekiq.js";
 // Note: Sidekiq is used to access defaultConfiguration for IterableJob workaround
 import { FlakyJob, LongIterableJob, registerAllJobs } from "./shared/jobs.js";
 import {

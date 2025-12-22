@@ -6,7 +6,9 @@
  * Communicates lifecycle events back to controller via stdout JSON messages.
  */
 
-import { Config, type Runner, Sidekiq } from "../../../src/index.js";
+import { Config } from "../../../src/config.js";
+import type { Runner } from "../../../src/runner.js";
+import { Sidekiq } from "../../../src/sidekiq.js";
 import { registerAllJobs } from "./jobs.js";
 
 interface WorkerMessage {

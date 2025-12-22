@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Config, Context, DefaultJobLogger } from "../src/index.js";
+import { Config } from "../src/config.js";
+import { Context } from "../src/context.js";
+import { DefaultJobLogger } from "../src/job-logger.js";
 import { createLogger } from "../src/logger.js";
 import type { JobPayload } from "../src/types.js";
 

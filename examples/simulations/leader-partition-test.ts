@@ -13,7 +13,7 @@
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Config } from "../../src/index.js";
+import { Config } from "../../src/config.js";
 import { registerAllJobs } from "./shared/jobs.js";
 import { formatResult, type SimulationResult } from "./shared/metrics.js";
 
@@ -86,6 +86,7 @@ class LeaderProcessManager {
 
     let actualPidSet = false;
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: message parsing requires multiple conditions
     child.stdout?.on("data", (data: Buffer) => {
       const lines = data.toString().split("\n").filter(Boolean);
       for (const line of lines) {
@@ -289,6 +290,7 @@ async function killAllOrphanWorkers(): Promise<void> {
   await sleep(2000);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: simulation test requires multiple conditions
 async function testLeaderPartition(config: Config): Promise<SimulationResult> {
   console.log("Spawning 5 processes...");
   const manager = new LeaderProcessManager();
@@ -360,7 +362,9 @@ async function testLeaderPartition(config: Config): Promise<SimulationResult> {
     errors.push("Split brain detected after reconnection");
   }
   if (finalLeaderCount !== 1) {
-    errors.push(`Expected 1 leader after reconnection, got ${finalLeaderCount}`);
+    errors.push(
+      `Expected 1 leader after reconnection, got ${finalLeaderCount}`
+    );
   }
 
   await manager.stopAll();

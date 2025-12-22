@@ -9,8 +9,9 @@ import {
   it,
 } from "vitest";
 import type { Config } from "../src/config.js";
-import { Job, Sidekiq, SidekiqLogger } from "../src/index.js";
-import { PlainFormatter } from "../src/logger.js";
+import { Job } from "../src/job.js";
+import { PlainFormatter, SidekiqLogger } from "../src/logger.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class ErrorJob extends Job<[]> {
   static sidekiqOptions = { retry: false };

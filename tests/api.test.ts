@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   DeadSet,
-  Job,
   Queue,
   RetrySet,
   ScheduledSet,
-  Sidekiq,
   Stats,
   StatsHistory,
-} from "../src/index.js";
+} from "../src/api.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class ApiJob extends Job<[number]> {
   async perform(_value: number) {

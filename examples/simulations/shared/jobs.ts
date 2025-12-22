@@ -2,7 +2,9 @@
  * Common job classes for production simulations
  */
 
-import { IterableJob, Job, Sidekiq } from "../../../src/index.js";
+import { IterableJob } from "../../../src/iterable.js";
+import { Job } from "../../../src/job.js";
+import { Sidekiq } from "../../../src/sidekiq.js";
 
 // No-op job for pure throughput testing
 export class NoOpJob extends Job<[number]> {

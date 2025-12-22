@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Job, ProcessSet, Sidekiq, Workers } from "../src/index.js";
+import { ProcessSet, Workers } from "../src/api.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class SleepJob extends Job<[number]> {
   async perform(ms: number) {

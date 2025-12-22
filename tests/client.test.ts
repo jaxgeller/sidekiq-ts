@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Client, Job, Sidekiq } from "../src/index.js";
+import { Client } from "../src/client.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class HardJob extends Job<[number, number]> {
   static sidekiqOptions = { queue: "critical", retry: 5 };

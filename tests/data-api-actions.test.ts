@@ -6,8 +6,8 @@ import {
   Queue,
   RetrySet,
   ScheduledSet,
-  Sidekiq,
-} from "../src/index.js";
+} from "../src/api.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 const redisUrl = "redis://localhost:6379/0";
 

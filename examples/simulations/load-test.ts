@@ -7,7 +7,9 @@
  * Run with: npx tsx examples/simulations/load-test.ts
  */
 
-import { Config, Queue, Sidekiq, Stats } from "../../src/index.js";
+import { Queue, Stats } from "../../src/api.js";
+import { Config } from "../../src/config.js";
+import { Sidekiq } from "../../src/sidekiq.js";
 import { NoOpJob, registerAllJobs } from "./shared/jobs.js";
 import {
   formatResult,

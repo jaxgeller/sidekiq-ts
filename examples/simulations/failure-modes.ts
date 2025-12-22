@@ -6,14 +6,9 @@
  * Run with: npx tsx examples/simulations/failure-modes.ts
  */
 
-import {
-  Config,
-  DeadSet,
-  Queue,
-  RetrySet,
-  Sidekiq,
-  Stats,
-} from "../../src/index.js";
+import { DeadSet, Queue, RetrySet, Stats } from "../../src/api.js";
+import { Config } from "../../src/config.js";
+import { Sidekiq } from "../../src/sidekiq.js";
 import { AlwaysFailJob, DelayJob, registerAllJobs } from "./shared/jobs.js";
 import {
   formatResult,

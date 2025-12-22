@@ -4,9 +4,12 @@
  * Reports leader status periodically via stdout JSON messages.
  */
 
-import { Config, type Runner, Sidekiq } from "../../../src/index.js";
-import { registerAllJobs } from "./jobs.js";
+import { Config } from "../../../src/config.js";
 import type { RedisClient } from "../../../src/redis.js";
+import type { Runner } from "../../../src/runner.js";
+import { Sidekiq } from "../../../src/sidekiq.js";
+
+import { registerAllJobs } from "./jobs.js";
 
 interface WorkerMessage {
   type: "lifecycle" | "status" | "error";
@@ -137,10 +140,14 @@ async function main() {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGUSR1", () => {
-    void disconnectRedis();
+    disconnectRedis().catch(() => {
+      // Intentionally ignore errors
+    });
   });
   process.on("SIGUSR2", () => {
-    void reconnectRedis();
+    reconnectRedis().catch(() => {
+      // Intentionally ignore errors
+    });
   });
 
   try {

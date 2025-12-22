@@ -15,7 +15,7 @@
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Config } from "../../src/index.js";
+import { Config } from "../../src/config.js";
 import { registerAllJobs } from "./shared/jobs.js";
 import { formatResult, type SimulationResult } from "./shared/metrics.js";
 

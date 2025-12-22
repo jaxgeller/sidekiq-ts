@@ -17,8 +17,6 @@ const LEADER_TTL_SECONDS = 20;
 const LEADER_REFRESH_INTERVAL_MS = 15_000;
 const FOLLOWER_CHECK_INTERVAL_MS = 60_000;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const LUA_REFRESH_LEADER = `
 if redis.call("get", KEYS[1]) == ARGV[1] then
   return redis.call("set", KEYS[1], ARGV[1], "ex", ARGV[2])

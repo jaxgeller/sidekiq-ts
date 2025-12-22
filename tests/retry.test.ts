@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Job, Sidekiq } from "../src/index.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class FailingJob extends Job<[number]> {
   static sidekiqOptions = { retry: 1 };

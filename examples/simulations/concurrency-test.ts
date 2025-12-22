@@ -6,7 +6,9 @@
  * Run with: npx tsx examples/simulations/concurrency-test.ts
  */
 
-import { Config, Queue, Sidekiq, Stats } from "../../src/index.js";
+import { Queue, Stats } from "../../src/api.js";
+import { Config } from "../../src/config.js";
+import { Sidekiq } from "../../src/sidekiq.js";
 import {
   CounterJob,
   NoOpJob,

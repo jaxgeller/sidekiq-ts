@@ -7,7 +7,8 @@ import {
   expect,
   it,
 } from "vitest";
-import { IterableInterrupted, IterableJob } from "../src/index.js";
+import { IterableJob } from "../src/iterable.js";
+import { IterableInterrupted } from "../src/iterable-errors.js";
 import { generateJid } from "../src/job-util.js";
 import { Sidekiq } from "../src/sidekiq.js";
 

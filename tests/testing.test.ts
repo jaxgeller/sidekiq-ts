@@ -7,7 +7,9 @@ import {
   expect,
   it,
 } from "vitest";
-import { Job, Queues, Sidekiq, Testing } from "../src/index.js";
+import { Job } from "../src/job.js";
+import { Sidekiq } from "../src/sidekiq.js";
+import { Queues, Testing } from "../src/testing.js";
 
 class TestJob extends Job<[number]> {
   static performed: number[] = [];

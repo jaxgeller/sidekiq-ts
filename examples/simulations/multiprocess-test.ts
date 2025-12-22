@@ -13,7 +13,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Config, Process, ProcessSet, Queue, Stats } from "../../src/index.js";
+import { Process, ProcessSet, Queue, Stats } from "../../src/api.js";
+import { Config } from "../../src/config.js";
 import { registerAllJobs, TrackableJob } from "./shared/jobs.js";
 import {
   formatResult,

@@ -1,7 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Job, Sidekiq } from "../src/index.js";
+import { Job } from "../src/job.js";
 import type { RedisClient } from "../src/redis.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 class MiddlewareJob extends Job<[number]> {
   async perform(_value: number) {
