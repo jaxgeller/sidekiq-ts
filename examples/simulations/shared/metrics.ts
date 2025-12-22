@@ -38,7 +38,9 @@ export class MetricsCollector {
   }
 
   getPercentile(p: number): number {
-    if (this.latencies.length === 0) return 0;
+    if (this.latencies.length === 0) {
+      return 0;
+    }
     const sorted = [...this.latencies].sort((a, b) => a - b);
     const idx = Math.min(
       Math.floor((sorted.length * p) / 100),
@@ -48,12 +50,16 @@ export class MetricsCollector {
   }
 
   getAverageLatency(): number {
-    if (this.latencies.length === 0) return 0;
+    if (this.latencies.length === 0) {
+      return 0;
+    }
     return this.latencies.reduce((a, b) => a + b, 0) / this.latencies.length;
   }
 
   getPeakMemoryMB(): number {
-    if (this.memorySnapshots.length === 0) return 0;
+    if (this.memorySnapshots.length === 0) {
+      return 0;
+    }
     return Math.max(...this.memorySnapshots) / 1024 / 1024;
   }
 
@@ -105,7 +111,9 @@ export async function waitForQueueDrain(
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const size = await queue.size();
-    if (size === 0) return true;
+    if (size === 0) {
+      return true;
+    }
     await new Promise((r) => setTimeout(r, pollInterval));
   }
   return false;
@@ -119,7 +127,9 @@ export async function waitForRetryDrain(
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const size = await retrySet.size();
-    if (size === 0) return true;
+    if (size === 0) {
+      return true;
+    }
     await new Promise((r) => setTimeout(r, pollInterval));
   }
   return false;

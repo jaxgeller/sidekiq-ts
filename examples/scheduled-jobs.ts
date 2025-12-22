@@ -20,7 +20,7 @@ class ReportJob extends Job<[string]> {
 }
 
 class ReminderJob extends Job<[number, string]> {
-  async perform(userId: number, message: string) {
+  perform(userId: number, message: string) {
     console.log(`Reminder for user ${userId}: ${message}`);
   }
 }

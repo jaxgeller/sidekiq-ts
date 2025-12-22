@@ -140,7 +140,7 @@ async function main() {
   const results = await runThroughputComparison();
 
   // Summary
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("SUMMARY");
   console.log("=".repeat(60));
 

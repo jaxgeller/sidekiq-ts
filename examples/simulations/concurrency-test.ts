@@ -125,7 +125,9 @@ async function testParallelEnqueue(): Promise<SimulationResult> {
           const jid = await NoOpJob.performAsync(
             clientId * jobsPerEnqueuer + j
           );
-          if (jid) jids.push(jid);
+          if (jid) {
+            jids.push(jid);
+          }
         }
         return jids;
       })
@@ -253,22 +255,22 @@ async function main() {
 
   console.log("\n--- Running: Race Condition Detection ---");
   results.push(await testRaceConditions());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   await new Promise((r) => setTimeout(r, 1000));
 
   console.log("\n--- Running: Parallel Enqueue Test ---");
   results.push(await testParallelEnqueue());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   await new Promise((r) => setTimeout(r, 1000));
 
   console.log("\n--- Running: Concurrent Bulk Enqueue Test ---");
   results.push(await testBulkEnqueue());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   // Summary
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("SUMMARY");
   console.log("=".repeat(60));
 

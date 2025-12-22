@@ -34,7 +34,7 @@ AlwaysFailJob.retryIn(() => 1); // 1 second retry delay
 // Job with configurable failure rate
 export class FlakyJob extends Job<[number, number]> {
   static sidekiqOptions = { retry: 5, queue: "simulation" };
-  async perform(_id: number, failPercent: number) {
+  perform(_id: number, failPercent: number) {
     if (Math.random() * 100 < failPercent) {
       throw new Error(`Random failure (${failPercent}% chance)`);
     }
@@ -62,7 +62,7 @@ export class CounterJob extends Job<[number]> {
 export class LongIterableJob extends IterableJob<[number], number, number> {
   static sidekiqOptions = { retry: 0, queue: "simulation" };
 
-  private lifecycleEvents: string[] = [];
+  private readonly lifecycleEvents: string[] = [];
 
   buildEnumerator(totalItems: number, opts: { cursor: number | null }) {
     return this.arrayEnumerator(
@@ -79,22 +79,22 @@ export class LongIterableJob extends IterableJob<[number], number, number> {
     }
   }
 
-  async onStart() {
+  onStart() {
     this.lifecycleEvents.push("start");
     this.logger().info(() => "Starting fresh iteration");
   }
 
-  async onResume() {
+  onResume() {
     this.lifecycleEvents.push("resume");
     this.logger().info(() => `Resuming from cursor: ${this.cursor()}`);
   }
 
-  async onStop() {
+  onStop() {
     this.lifecycleEvents.push("stop");
     this.logger().info(() => `Stopping at cursor: ${this.cursor()}`);
   }
 
-  async onComplete() {
+  onComplete() {
     this.lifecycleEvents.push("complete");
     this.logger().info(() => "Completed iteration");
   }

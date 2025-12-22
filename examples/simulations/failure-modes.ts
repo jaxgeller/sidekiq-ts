@@ -70,7 +70,9 @@ async function testRetryExhaustion(): Promise<SimulationResult> {
     const jids: string[] = [];
     for (let i = 0; i < jobCount; i++) {
       const jid = await AlwaysFailJob.performAsync(`fail-${i}`);
-      if (jid) jids.push(jid);
+      if (jid) {
+        jids.push(jid);
+      }
     }
 
     console.log("Starting worker...");
@@ -229,16 +231,16 @@ async function main() {
 
   console.log("\n--- Running: Retry Exhaustion Test ---");
   results.push(await testRetryExhaustion());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   await new Promise((r) => setTimeout(r, 1000));
 
   console.log("\n--- Running: Graceful Shutdown Test ---");
   results.push(await testGracefulShutdown());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   // Summary
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("SUMMARY");
   console.log("=".repeat(60));
 

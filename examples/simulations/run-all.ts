@@ -25,7 +25,7 @@ interface TestResult {
   output: string;
 }
 
-async function runTest(scriptPath: string, name: string): Promise<TestResult> {
+function runTest(scriptPath: string, name: string): Promise<TestResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
     let output = "";
@@ -85,9 +85,9 @@ async function main() {
 
   for (const test of tests) {
     console.log();
-    console.log("┌" + "─".repeat(58) + "┐");
+    console.log(`┌${"─".repeat(58)}┐`);
     console.log(`│ Running: ${test.name.padEnd(47)} │`);
-    console.log("└" + "─".repeat(58) + "┘");
+    console.log(`└${"─".repeat(58)}┘`);
     console.log();
 
     const scriptPath = join(__dirname, test.script);

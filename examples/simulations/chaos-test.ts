@@ -97,7 +97,7 @@ async function testRandomFailures(): Promise<SimulationResult> {
 
     const stats = new Stats(config);
     const processed = await stats.processed();
-    const failed = await stats.failed();
+    const _failed = await stats.failed();
     const deadSet = new DeadSet(config);
     const deadSize = await deadSet.size();
 
@@ -319,22 +319,22 @@ async function main() {
 
   console.log("\n--- Running: Random Failures Test ---");
   results.push(await testRandomFailures());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   await new Promise((r) => setTimeout(r, 2000));
 
   console.log("\n--- Running: IterableJob Interruption Test ---");
   results.push(await testIterableInterruption());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   await new Promise((r) => setTimeout(r, 2000));
 
   console.log("\n--- Running: Mixed Chaos Test ---");
   results.push(await testMixedChaos());
-  console.log(formatResult(results[results.length - 1]));
+  console.log(formatResult(results.at(-1)));
 
   // Summary
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("SUMMARY");
   console.log("=".repeat(60));
 

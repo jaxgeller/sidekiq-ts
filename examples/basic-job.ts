@@ -18,7 +18,7 @@ Sidekiq.defaultConfiguration.redis = { url: "redis://localhost:6379" };
 // Define a job by extending the Job class.
 // The type parameter specifies the argument types for perform().
 class WelcomeEmailJob extends Job<[string, string]> {
-  async perform(email: string, name: string) {
+  perform(email: string, name: string) {
     console.log(`Sending welcome email to ${name} <${email}>`);
     // In a real app, you'd send an actual email here
   }

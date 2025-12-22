@@ -31,7 +31,7 @@ class PaymentJob extends Job<[string, number]> {
     backtrace: 10,
   };
 
-  async perform(orderId: string, amount: number) {
+  perform(orderId: string, amount: number) {
     console.log(`Processing payment for order ${orderId}: $${amount}`);
 
     // Simulate occasional failure
@@ -65,7 +65,7 @@ PaymentJob.retriesExhausted((payload, error) => {
 
 // A simple job using the default queue
 class NotificationJob extends Job<[number, string]> {
-  async perform(userId: number, message: string) {
+  perform(userId: number, message: string) {
     console.log(`Notifying user ${userId}: ${message}`);
   }
 }
