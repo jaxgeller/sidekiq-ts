@@ -334,7 +334,14 @@ export class Runner {
         rss: String(rssKb),
       });
       pipeline.expire(this.identity, 60);
-      await pipeline.exec();
+      pipeline.rPop(`${this.identity}-signals`);
+      const result = await pipeline.exec();
+
+      // Check for remote signals (last result from pipeline)
+      const signalResult = result?.[result.length - 1];
+      if (signalResult && typeof signalResult === "string") {
+        await this.handleSignal(signalResult);
+      }
 
       // Fire heartbeat/beat events (not oneshot - they fire repeatedly)
       await this.config.fireEvent("heartbeat", { oneshot: false });
@@ -343,6 +350,44 @@ export class Runner {
       this.config.logger.error(
         () =>
           `heartbeat: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private async handleSignal(signal: string): Promise<void> {
+    this.config.logger.info(() => `Received remote signal: ${signal}`);
+    switch (signal) {
+      case "TSTP":
+        await this.quiet();
+        break;
+      case "TERM":
+        // Trigger stop - this will be picked up by the main loop
+        this.stopping = true;
+        this.quieting = true;
+        await this.config.fireEvent("shutdown", { reverse: true });
+        break;
+      case "TTIN":
+        this.dumpWorkState();
+        break;
+      default:
+        this.config.logger.warn(() => `Unknown signal: ${signal}`);
+    }
+  }
+
+  private dumpWorkState(): void {
+    const snapshot = this.snapshotWork();
+    if (snapshot.length === 0) {
+      this.config.logger.info(() => "No active workers");
+      return;
+    }
+    this.config.logger.info(() => `Active workers: ${snapshot.length}`);
+    for (const work of snapshot) {
+      this.config.logger.info(
+        () =>
+          `  ${work.workerId}: queue=${work.queue} ` +
+          `jid=${work.payload?.jid ?? "unknown"} ` +
+          `class=${work.payload?.class ?? "unknown"} ` +
+          `elapsed=${work.elapsed.toFixed(1)}s`
       );
     }
   }

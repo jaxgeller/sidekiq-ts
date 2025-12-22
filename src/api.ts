@@ -677,6 +677,102 @@ export class ProcessSet {
   }
 }
 
+/**
+ * Represents a single Sidekiq process and allows remote signaling.
+ */
+export class Process {
+  private readonly config?: Config;
+  readonly identity: string;
+  readonly info: Record<string, unknown>;
+  readonly busy: number;
+  readonly beat: number;
+  readonly quiet: boolean;
+  readonly rtt_us: number;
+  readonly rss: number;
+
+  constructor(entry: ProcessInfoEntry, config?: Config) {
+    this.config = config;
+    this.identity = entry.identity;
+    this.info = entry.info;
+    this.busy = entry.busy;
+    this.beat = entry.beat;
+    this.quiet = entry.quiet;
+    this.rtt_us = entry.rtt_us;
+    this.rss = entry.rss;
+  }
+
+  get tag(): string | undefined {
+    return this.info.tag as string | undefined;
+  }
+
+  get labels(): string[] {
+    return (this.info.labels as string[]) ?? [];
+  }
+
+  get queues(): string[] {
+    return (this.info.queues as string[]) ?? [];
+  }
+
+  get version(): string | undefined {
+    return this.info.version as string | undefined;
+  }
+
+  get embedded(): boolean {
+    return this.info.embedded === true;
+  }
+
+  /**
+   * Whether this process is quiet or shutting down.
+   */
+  get stopping(): boolean {
+    return this.quiet;
+  }
+
+  /**
+   * Signal this process to stop processing new jobs.
+   * It will continue to execute jobs it has already fetched.
+   * This method is asynchronous and it can take 5-10 seconds
+   * for the process to quiet.
+   */
+  async quietProcess(): Promise<void> {
+    if (this.embedded) {
+      throw new Error("Can't quiet an embedded process");
+    }
+    await this.signal("TSTP");
+  }
+
+  /**
+   * Signal this process to shutdown.
+   * It will shutdown within its configured timeout value, default 25 seconds.
+   * This method is asynchronous and it can take 5-10 seconds
+   * for the process to start shutting down.
+   */
+  async stopProcess(): Promise<void> {
+    if (this.embedded) {
+      throw new Error("Can't stop an embedded process");
+    }
+    await this.signal("TERM");
+  }
+
+  /**
+   * Signal this process to log its current worker state.
+   * Useful for debugging frozen or deadlocked processes.
+   * This method is asynchronous and it can take 5-10 seconds.
+   */
+  async dumpThreads(): Promise<void> {
+    await this.signal("TTIN");
+  }
+
+  private async signal(sig: string): Promise<void> {
+    const redis = await getRedis(this.config);
+    const key = `${this.identity}-signals`;
+    const pipeline = redis.multi();
+    pipeline.lPush(key, sig);
+    pipeline.expire(key, 60);
+    await pipeline.exec();
+  }
+}
+
 export interface WorkerEntry {
   process: string;
   thread: string;

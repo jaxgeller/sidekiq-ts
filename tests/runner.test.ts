@@ -1,13 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Config } from "../src/config.js";
 import { Job, Sidekiq } from "../src/index.js";
 
@@ -337,6 +329,170 @@ describe("Dynamic Poll Interval", () => {
     const effectiveCount = processCount === 0 ? 1 : processCount;
     expect(effectiveCount).toBe(1);
 
+    await config.close();
+  });
+});
+
+describe("Process Signaling", () => {
+  it("quiets process via remote signal", async () => {
+    const events: string[] = [];
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      heartbeatInterval: 0.1,
+      lifecycleEvents: {
+        startup: [],
+        quiet: [() => events.push("quiet")],
+        shutdown: [],
+        exit: [],
+        heartbeat: [],
+        beat: [],
+      },
+    });
+
+    const runner = await Sidekiq.run({ config });
+    const redis = await config.getRedisClient();
+
+    // Get the runner's identity from the processes set
+    const processes = await redis.sMembers("processes");
+    expect(processes.length).toBeGreaterThan(0);
+    const identity = processes[0];
+
+    // Send TSTP signal via Redis
+    await redis.lPush(`${identity}-signals`, "TSTP");
+
+    // Wait for heartbeat to pick up the signal
+    await sleep(200);
+
+    expect(events).toContain("quiet");
+
+    await runner.stop();
+    await config.close();
+  });
+
+  it("dumps worker state via remote signal", async () => {
+    const logs: string[] = [];
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      heartbeatInterval: 0.1,
+      logger: {
+        debug: () => undefined,
+        info: (fn) => logs.push(fn()),
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    });
+
+    const runner = await Sidekiq.run({ config });
+    const redis = await config.getRedisClient();
+
+    const processes = await redis.sMembers("processes");
+    const identity = processes[0];
+
+    // Send TTIN signal via Redis
+    await redis.lPush(`${identity}-signals`, "TTIN");
+
+    // Wait for heartbeat to pick up the signal
+    await sleep(200);
+
+    expect(
+      logs.some((log) => log.includes("Received remote signal: TTIN"))
+    ).toBe(true);
+    expect(
+      logs.some(
+        (log) =>
+          log.includes("No active workers") || log.includes("Active workers")
+      )
+    ).toBe(true);
+
+    await runner.stop();
+    await config.close();
+  });
+});
+
+describe("Process API", () => {
+  it("sends quiet signal to process", async () => {
+    const { Process, ProcessSet } = await import("../src/api.js");
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+    });
+
+    const runner = await Sidekiq.run({ config });
+    const redis = await config.getRedisClient();
+
+    // Get processes and create Process instance
+    const processSet = new ProcessSet(config);
+    const entries = await processSet.entries();
+    expect(entries.length).toBeGreaterThan(0);
+
+    const process = new Process(entries[0], config);
+
+    // Send quiet signal
+    await process.quietProcess();
+
+    // Verify signal was pushed to Redis
+    const signal = await redis.rPop(`${process.identity}-signals`);
+    expect(signal).toBe("TSTP");
+
+    await runner.stop();
+    await config.close();
+  });
+
+  it("sends stop signal to process", async () => {
+    const { Process, ProcessSet } = await import("../src/api.js");
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+    });
+
+    const runner = await Sidekiq.run({ config });
+    const redis = await config.getRedisClient();
+
+    const processSet = new ProcessSet(config);
+    const entries = await processSet.entries();
+    const process = new Process(entries[0], config);
+
+    // Send stop signal
+    await process.stopProcess();
+
+    // Verify signal was pushed to Redis
+    const signal = await redis.rPop(`${process.identity}-signals`);
+    expect(signal).toBe("TERM");
+
+    await runner.stop();
+    await config.close();
+  });
+
+  it("throws when trying to quiet embedded process", async () => {
+    const { Process } = await import("../src/api.js");
+    const config = new Config({ redis: { url: redisUrl } });
+
+    const process = new Process(
+      {
+        identity: "test",
+        info: { embedded: true },
+        busy: 0,
+        beat: 0,
+        quiet: false,
+        rtt_us: 0,
+        rss: 0,
+      },
+      config
+    );
+
+    await expect(process.quietProcess()).rejects.toThrow(
+      "Can't quiet an embedded process"
+    );
     await config.close();
   });
 });
