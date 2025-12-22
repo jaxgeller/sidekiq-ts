@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, it, expect } from "vitest";
-import { Sidekiq, Job } from "../src/index.js";
 import { setTimeout as sleep } from "node:timers/promises";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Job, Sidekiq } from "../src/index.js";
 
 class RecorderJob extends Job<[number]> {
   static performed: number[] = [];

@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
+import { IterableInterrupted, JobSkipError } from "./iterable-errors.js";
 import type { JobPayload } from "./types.js";
-import { IterableInterrupted, JobSkipError } from "./iterable_errors.js";
 
 export class InterruptHandler {
   config?: Config;

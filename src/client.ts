@@ -1,22 +1,17 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { RedisClient } from "./redis.js";
-import { Sidekiq } from "./sidekiq.js";
-import { dumpJson } from "./json.js";
+import type { Config } from "./config.js";
+import { ITERATION_STATE_TTL_SECONDS } from "./iterable-constants.js";
 import {
+  generateJid,
   normalizeItem,
   nowInMillis,
   verifyJson,
-  generateJid,
-} from "./job_util.js";
-import { ITERATION_STATE_TTL_SECONDS } from "./iterable_constants.js";
+} from "./job-util.js";
+import { dumpJson } from "./json.js";
+import type { RedisClient } from "./redis.js";
+import { Sidekiq } from "./sidekiq.js";
 import { Testing } from "./testing.js";
-import type {
-  BulkPayload,
-  JobPayload,
-  JobClassLike,
-  JobOptions,
-} from "./types.js";
-import type { Config } from "./config.js";
+import type { BulkPayload, JobClassLike, JobPayload } from "./types.js";
 
 const redisContext = new AsyncLocalStorage<RedisClient>();
 
@@ -24,7 +19,10 @@ export class Client {
   private config: Config;
   private redisClient?: RedisClient;
 
-  constructor({ config, redis }: { config?: Config; redis?: RedisClient } = {}) {
+  constructor({
+    config,
+    redis,
+  }: { config?: Config; redis?: RedisClient } = {}) {
     this.config = config ?? Sidekiq.defaultConfiguration;
     this.redisClient = redis;
   }
@@ -37,7 +35,9 @@ export class Client {
     );
   }
 
-  middleware(fn?: (chain: Config["clientMiddleware"]) => void): Config["clientMiddleware"] {
+  middleware(
+    fn?: (chain: Config["clientMiddleware"]) => void
+  ): Config["clientMiddleware"] {
     if (fn) {
       fn(this.config.clientMiddleware);
     }
@@ -75,7 +75,10 @@ export class Client {
 
     if (at !== undefined) {
       const atArray = Array.isArray(at) ? at : [at];
-      if (atArray.length === 0 || !atArray.every((entry) => typeof entry === "number")) {
+      if (
+        atArray.length === 0 ||
+        !atArray.every((entry) => typeof entry === "number")
+      ) {
         throw new Error("Job 'at' must be a number or array of numbers");
       }
       if (Array.isArray(at) && at.length !== args.length) {
@@ -106,7 +109,10 @@ export class Client {
       resolvedAt = args.map(() => now + Math.random() * interval);
     }
 
-    const base: JobPayload = { ...(items as Record<string, unknown>), args } as JobPayload;
+    const base: JobPayload = {
+      ...(items as Record<string, unknown>),
+      args,
+    } as JobPayload;
     delete (base as Record<string, unknown>).batch_size;
     delete (base as Record<string, unknown>).spread_interval;
     delete (base as Record<string, unknown>).at;
@@ -121,36 +127,42 @@ export class Client {
         break;
       }
       if (!slice.every((entry) => Array.isArray(entry))) {
-        throw new Error("Bulk arguments must be an Array of Arrays: [[1], [2]]");
+        throw new Error(
+          "Bulk arguments must be an Array of Arrays: [[1], [2]]"
+        );
       }
 
-      const payloads = await Promise.all(slice.map(async (jobArgs, index) => {
-        const payload: JobPayload = {
-          ...normalized,
-          args: jobArgs,
-          jid: generateJid(),
-        };
-        if (resolvedAt !== undefined) {
-          payload.at = Array.isArray(resolvedAt)
-            ? resolvedAt[i + index]
-            : resolvedAt;
-        }
-        const result = await this.config.clientMiddleware.invoke(
-          items.class,
-          payload,
-          payload.queue ?? "default",
-          redis,
-          async () => payload
-        );
-        if (!result) {
-          return null;
-        }
-        const finalPayload = result as JobPayload;
-        verifyJson(finalPayload.args, this.config.strictArgs);
-        return finalPayload;
-      }));
+      const payloads = await Promise.all(
+        slice.map(async (jobArgs, index) => {
+          const payload: JobPayload = {
+            ...normalized,
+            args: jobArgs,
+            jid: generateJid(),
+          };
+          if (resolvedAt !== undefined) {
+            payload.at = Array.isArray(resolvedAt)
+              ? resolvedAt[i + index]
+              : resolvedAt;
+          }
+          const result = await this.config.clientMiddleware.invoke(
+            items.class,
+            payload,
+            payload.queue ?? "default",
+            redis,
+            async () => payload
+          );
+          if (!result) {
+            return null;
+          }
+          const finalPayload = result as JobPayload;
+          verifyJson(finalPayload.args, this.config.strictArgs);
+          return finalPayload;
+        })
+      );
 
-      const toPush = payloads.filter((payload): payload is JobPayload => Boolean(payload));
+      const toPush = payloads.filter((payload): payload is JobPayload =>
+        Boolean(payload)
+      );
       await this.rawPush(toPush);
       results.push(...payloads.map((payload) => payload?.jid ?? null));
     }
@@ -216,7 +228,7 @@ export class Client {
   ): Promise<string | null> {
     const queue =
       typeof klass !== "string" && klass.getSidekiqOptions
-        ? klass.getSidekiqOptions().queue ?? "default"
+        ? (klass.getSidekiqOptions().queue ?? "default")
         : "default";
     return Client.enqueueToIn(queue, interval, klass, ...args);
   }

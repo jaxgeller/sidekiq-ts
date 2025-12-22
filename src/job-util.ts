@@ -1,18 +1,17 @@
 import { randomBytes } from "node:crypto";
+import { registerJob } from "./registry.js";
 import type {
   JobClassLike,
   JobOptions,
   JobPayload,
   StrictArgsMode,
 } from "./types.js";
-import { registerJob } from "./registry.js";
 
 export const TRANSIENT_ATTRIBUTES: string[] = [];
 
 const MAX_RETRY_FOR_SECONDS = 1_000_000_000;
 
-export const nowInMillis = (): number =>
-  Date.now();
+export const nowInMillis = (): number => Date.now();
 
 export const generateJid = (): string => randomBytes(12).toString("hex");
 
@@ -33,10 +32,14 @@ const isJobClassLike = (value: unknown): value is JobClassLike =>
 
 export const validateItem = (item: JobPayload): void => {
   if (!item || typeof item !== "object") {
-    throw new Error(`Job must be an object with 'class' and 'args' keys: ${item}`);
+    throw new Error(
+      `Job must be an object with 'class' and 'args' keys: ${item}`
+    );
   }
-  if (!("class" in item) || !("args" in item)) {
-    throw new Error(`Job must include 'class' and 'args': ${JSON.stringify(item)}`);
+  if (!("class" in item && "args" in item)) {
+    throw new Error(
+      `Job must include 'class' and 'args': ${JSON.stringify(item)}`
+    );
   }
   if (!Array.isArray(item.args)) {
     throw new Error(`Job args must be an Array: ${JSON.stringify(item)}`);
@@ -47,12 +50,17 @@ export const validateItem = (item: JobPayload): void => {
     );
   }
   if (item.at !== undefined && typeof item.at !== "number") {
-    throw new Error(`Job 'at' must be a number timestamp: ${JSON.stringify(item)}`);
+    throw new Error(
+      `Job 'at' must be a number timestamp: ${JSON.stringify(item)}`
+    );
   }
   if (item.tags && !Array.isArray(item.tags)) {
     throw new Error(`Job tags must be an Array: ${JSON.stringify(item)}`);
   }
-  if (typeof item.retry_for === "number" && item.retry_for > MAX_RETRY_FOR_SECONDS) {
+  if (
+    typeof item.retry_for === "number" &&
+    item.retry_for > MAX_RETRY_FOR_SECONDS
+  ) {
     throw new Error(
       `retry_for must be a relative amount of time: ${JSON.stringify(item)}`
     );
@@ -81,13 +89,13 @@ export const normalizeItem = (
   let defaults = normalizedHash(item.class, defaultOptions);
   if (item.wrapped && typeof item.wrapped !== "string") {
     const wrapped = item.wrapped as JobClassLike;
-    if (!wrapped.getSidekiqOptions) {
-      // fall through without overriding defaults
+    if (wrapped.getSidekiqOptions) {
+      defaults = {
+        ...defaults,
+        ...wrapped.getSidekiqOptions(),
+      };
     } else {
-    defaults = {
-      ...defaults,
-      ...wrapped.getSidekiqOptions(),
-    };
+      // fall through without overriding defaults
     }
   }
 
@@ -139,7 +147,11 @@ const jsonUnsafe = (value: unknown): unknown => {
   if (valueType === "number") {
     return Number.isFinite(value) ? null : value;
   }
-  if (valueType === "undefined" || valueType === "bigint" || valueType === "symbol") {
+  if (
+    valueType === "undefined" ||
+    valueType === "bigint" ||
+    valueType === "symbol"
+  ) {
     return value;
   }
   if (valueType === "function") {
@@ -179,7 +191,7 @@ export const verifyJson = (args: unknown[], mode: StrictArgsMode): void => {
     return;
   }
   const message =
-    `Job arguments must be native JSON types, ` +
+    "Job arguments must be native JSON types, " +
     `but ${String(unsafe)} is a ${typeof unsafe}. ` +
     "See https://github.com/sidekiq/sidekiq/wiki/Best-Practices";
   if (mode === "raise") {

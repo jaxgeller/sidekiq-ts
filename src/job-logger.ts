@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
 import { Context } from "./context.js";
-import type { JobPayload, JobLogger } from "./types.js";
+import type { JobLogger, JobPayload } from "./types.js";
 
 export class DefaultJobLogger implements JobLogger {
   private config: Config;
@@ -28,7 +28,11 @@ export class DefaultJobLogger implements JobLogger {
     return await Context.with(context, fn);
   }
 
-  async call<T>(payload: JobPayload, queue: string, fn: () => Promise<T> | T): Promise<T> {
+  async call<T>(
+    payload: JobPayload,
+    queue: string,
+    fn: () => Promise<T> | T
+  ): Promise<T> {
     const start = process.hrtime.bigint();
     Context.add("queue", queue);
     this.log("info", payload, queue, "start");
@@ -68,7 +72,12 @@ export class DefaultJobLogger implements JobLogger {
       return null;
     }
     const normalized = level.toLowerCase();
-    if (normalized === "debug" || normalized === "info" || normalized === "warn" || normalized === "error") {
+    if (
+      normalized === "debug" ||
+      normalized === "info" ||
+      normalized === "warn" ||
+      normalized === "error"
+    ) {
       return normalized as "debug" | "info" | "warn" | "error";
     }
     return null;

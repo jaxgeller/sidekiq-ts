@@ -22,7 +22,9 @@ const formatContext = (context?: Record<string, unknown>): string => {
   if (!context) {
     return "";
   }
-  const entries = Object.entries(context).filter(([, value]) => value !== undefined);
+  const entries = Object.entries(context).filter(
+    ([, value]) => value !== undefined
+  );
   if (entries.length === 0) {
     return "";
   }
@@ -138,7 +140,10 @@ export class SidekiqLogger implements Logger {
   formatter: Formatter;
   private base: Console;
 
-  constructor(base: Console = console, formatter: Formatter = defaultFormatter()) {
+  constructor(
+    base: Console = console,
+    formatter: Formatter = defaultFormatter()
+  ) {
     this.base = base;
     this.formatter = formatter;
   }

@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, it, expect } from "vitest";
-import { Sidekiq, Job } from "../src/index.js";
 import { setTimeout as sleep } from "node:timers/promises";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Job, Sidekiq } from "../src/index.js";
 
 class FailingJob extends Job<[number]> {
   static sidekiqOptions = { retry: 1 };
@@ -28,7 +28,10 @@ class BacktraceJob extends Job<[number]> {
 
 const redisUrl = "redis://localhost:6379/0";
 
-const waitFor = async (condition: () => Promise<boolean> | boolean, timeoutMs = 1000) => {
+const waitFor = async (
+  condition: () => Promise<boolean> | boolean,
+  timeoutMs = 1000
+) => {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (await condition()) {

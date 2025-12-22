@@ -1,13 +1,13 @@
-import { afterAll, beforeAll, beforeEach, describe, it, expect } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  Sidekiq,
+  DeadSet,
   Job,
+  Queue,
+  RetrySet,
+  ScheduledSet,
+  Sidekiq,
   Stats,
   StatsHistory,
-  Queue,
-  ScheduledSet,
-  RetrySet,
-  DeadSet,
 } from "../src/index.js";
 
 class ApiJob extends Job<[number]> {

@@ -1,13 +1,17 @@
-import { dumpJson, loadJson } from "./json.js";
-import { Client } from "./client.js";
-import { resolveJob } from "./registry.js";
-import type { JobConstructor, RetriesExhaustedHandler, RetryInHandler } from "./job.js";
-import type { Config } from "./config.js";
-import type { JobPayload } from "./types.js";
-import { compressBacktrace, extractBacktrace } from "./backtrace.js";
-import { JobSkipError } from "./iterable_errors.js";
-import { ensureInterruptHandler } from "./interrupt_handler.js";
 import { hostname } from "node:os";
+import { compressBacktrace, extractBacktrace } from "./backtrace.js";
+import { Client } from "./client.js";
+import type { Config } from "./config.js";
+import { ensureInterruptHandler } from "./interrupt-handler.js";
+import { JobSkipError } from "./iterable-errors.js";
+import type {
+  JobConstructor,
+  RetriesExhaustedHandler,
+  RetryInHandler,
+} from "./job.js";
+import { dumpJson, loadJson } from "./json.js";
+import { resolveJob } from "./registry.js";
+import type { JobPayload } from "./types.js";
 
 const FETCH_TIMEOUT_SECONDS = 2;
 const STATS_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
@@ -122,10 +126,14 @@ export class Runner {
   private heartbeatHandle?: NodeJS.Timeout;
   private queueStrategy: QueueStrategy;
   private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
-  private workerRedis: Array<Awaited<ReturnType<Config["getRedisClient"]>>> = [];
+  private workerRedis: Array<Awaited<ReturnType<Config["getRedisClient"]>>> =
+    [];
   private identity: string;
   private startedAt: number;
-  private workState = new Map<string, { queue: string; payload: string; runAt: number }>();
+  private workState = new Map<
+    string,
+    { queue: string; payload: string; runAt: number }
+  >();
   private inProgress = new Map<string, { queue: string; payload: string }>();
   private lastCleanupAt = 0;
   private rttReadings: number[] = [];
@@ -255,7 +263,8 @@ export class Runner {
       await pipeline.exec();
     } catch (error) {
       this.config.logger.error(
-        () => `heartbeat: ${error instanceof Error ? error.message : String(error)}`
+        () =>
+          `heartbeat: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -287,7 +296,9 @@ export class Runner {
     };
   }
 
-  private async checkRtt(redis: Awaited<ReturnType<Config["getRedisClient"]>>): Promise<number> {
+  private async checkRtt(
+    redis: Awaited<ReturnType<Config["getRedisClient"]>>
+  ): Promise<number> {
     const start = process.hrtime.bigint();
     await redis.ping();
     const end = process.hrtime.bigint();
@@ -303,7 +314,10 @@ export class Runner {
     if (this.rttReadings.length > MAX_READINGS) {
       this.rttReadings.shift();
     }
-    if (this.rttReadings.length === MAX_READINGS && this.rttReadings.every((value) => value > WARNING_LEVEL)) {
+    if (
+      this.rttReadings.length === MAX_READINGS &&
+      this.rttReadings.every((value) => value > WARNING_LEVEL)
+    ) {
       this.config.logger.warn(
         () =>
           `Redis RTT is high (${this.rttReadings.join(", ")} us). ` +
@@ -453,8 +467,15 @@ export class Runner {
       }
 
       const workerId = `worker-${index}`;
-      this.inProgress.set(workerId, { queue: unit.queue, payload: unit.payload });
-      this.workState.set(workerId, { queue: unit.queue, payload: unit.payload, runAt: Date.now() });
+      this.inProgress.set(workerId, {
+        queue: unit.queue,
+        payload: unit.payload,
+      });
+      this.workState.set(workerId, {
+        queue: unit.queue,
+        payload: unit.payload,
+        runAt: Date.now(),
+      });
       void this.heartbeat();
       try {
         await this.processJob(unit.queue, unit.payload);
@@ -466,20 +487,18 @@ export class Runner {
     }
   }
 
-  private async fetchWork(index: number): Promise<
-    | {
-        queue: string;
-        payload: string;
-      }
-    | null
-  > {
+  private async fetchWork(index: number): Promise<{
+    queue: string;
+    payload: string;
+  } | null> {
     const queueKeys = this.queueStrategy.queueKeys();
     if (queueKeys.length === 0) {
       await sleep(FETCH_TIMEOUT_SECONDS * 1000);
       return null;
     }
 
-    const redis = this.workerRedis[index] ?? (await this.config.getRedisClient());
+    const redis =
+      this.workerRedis[index] ?? (await this.config.getRedisClient());
     const result = (await redis.sendCommand([
       "BRPOP",
       ...queueKeys,
@@ -510,7 +529,12 @@ export class Runner {
       const err = error instanceof Error ? error : new Error(String(error));
       await this.runErrorHandlers(
         err,
-        this.buildErrorContext("Invalid JSON for job", undefined, queue, payloadRaw)
+        this.buildErrorContext(
+          "Invalid JSON for job",
+          undefined,
+          queue,
+          payloadRaw
+        )
       );
       return;
     }
@@ -539,10 +563,15 @@ export class Runner {
       await this.jobLogger.prepare(payload, async () => {
         await this.jobLogger.call(payload, queue, async () => {
           await this.runWithProfiler(payload, async () => {
-            await this.config.serverMiddleware.invoke(job, payload, queue, async () => {
-              executed = true;
-              await job.perform(...(payload.args ?? []));
-            });
+            await this.config.serverMiddleware.invoke(
+              job,
+              payload,
+              queue,
+              async () => {
+                executed = true;
+                await job.perform(...(payload.args ?? []));
+              }
+            );
           });
         });
       });
@@ -579,7 +608,9 @@ export class Runner {
         : klass.getSidekiqOptions().retry;
 
     const retryDisabled =
-      retryOption === false || retryOption === null || retryOption === undefined;
+      retryOption === false ||
+      retryOption === null ||
+      retryOption === undefined;
     if (retryDisabled) {
       await this.runDeathHandlers(payload, error);
       await this.runErrorHandlers(
@@ -616,13 +647,14 @@ export class Runner {
     }
 
     const retryFor = payload.retry_for;
-    if (
-      typeof retryFor === "number" &&
-      payload.failed_at !== undefined
-    ) {
+    if (typeof retryFor === "number" && payload.failed_at !== undefined) {
       const deadline = payload.failed_at / 1000 + retryFor;
       if (deadline < nowSeconds) {
-        await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+        await this.retriesExhausted(
+          payload,
+          error,
+          klass.sidekiqRetriesExhausted
+        );
         await this.runErrorHandlers(
           error,
           this.buildErrorContext("Job raised exception", payload, queue)
@@ -630,7 +662,11 @@ export class Runner {
         return;
       }
     } else if (payload.retry_count >= maxRetries) {
-      await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+      await this.retriesExhausted(
+        payload,
+        error,
+        klass.sidekiqRetriesExhausted
+      );
       await this.runErrorHandlers(
         error,
         this.buildErrorContext("Job raised exception", payload, queue)
@@ -648,7 +684,11 @@ export class Runner {
       return;
     }
     if (delayResult === "kill") {
-      await this.retriesExhausted(payload, error, klass.sidekiqRetriesExhausted);
+      await this.retriesExhausted(
+        payload,
+        error,
+        klass.sidekiqRetriesExhausted
+      );
       await this.runErrorHandlers(
         error,
         this.buildErrorContext("Job raised exception", payload, queue)
@@ -659,7 +699,7 @@ export class Runner {
     const delaySeconds =
       typeof delayResult === "number"
         ? delayResult
-        : Math.pow(payload.retry_count, 4) + 15;
+        : payload.retry_count ** 4 + 15;
     const jitter = Math.random() * 10 * (payload.retry_count + 1);
     const retryAt = nowSeconds + delaySeconds + jitter;
 
@@ -732,7 +772,10 @@ export class Runner {
     await pipeline.exec();
   }
 
-  private async runDeathHandlers(payload: JobPayload, error: Error): Promise<void> {
+  private async runDeathHandlers(
+    payload: JobPayload,
+    error: Error
+  ): Promise<void> {
     for (const handler of this.config.deathHandlers) {
       try {
         await handler(payload, error);
@@ -797,7 +840,10 @@ export class Runner {
     }
   }
 
-  private async updateStat(stat: "processed" | "failed", count = 1): Promise<void> {
+  private async updateStat(
+    stat: "processed" | "failed",
+    count = 1
+  ): Promise<void> {
     const redis = this.baseRedis ?? (await this.config.getRedisClient());
     const date = new Date().toISOString().slice(0, 10);
     const key = `stat:${stat}`;

@@ -1,8 +1,8 @@
-import { Config } from "../src/config.js";
 import { Client } from "../src/client.js";
+import { Config } from "../src/config.js";
 import { Job } from "../src/job.js";
-import { Sidekiq } from "../src/sidekiq.js";
 import type { Logger } from "../src/logger.js";
+import { Sidekiq } from "../src/sidekiq.js";
 
 const hrNowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
 
@@ -22,12 +22,14 @@ const parsePositiveInt = (value: string, flag: string): number => {
   return Math.floor(parsed);
 };
 
-const parseArgs = (argv: string[]): BenchmarkOptions & { showHelp: boolean } => {
+const parseArgs = (
+  argv: string[]
+): BenchmarkOptions & { showHelp: boolean } => {
   const args = argv.slice(2);
   const options: BenchmarkOptions & { showHelp: boolean } = {
     jobs: 10_000,
     concurrency: 10,
-    batchSize: 1_000,
+    batchSize: 1000,
     queue: "default",
     redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379/0",
     showHelp: false,
@@ -35,9 +37,10 @@ const parseArgs = (argv: string[]): BenchmarkOptions & { showHelp: boolean } => 
 
   for (let i = 0; i < args.length; i += 1) {
     const raw = args[i];
-    const [arg, inlineValue] = raw.startsWith("--") && raw.includes("=")
-      ? raw.split("=", 2)
-      : [raw, undefined];
+    const [arg, inlineValue] =
+      raw.startsWith("--") && raw.includes("=")
+        ? raw.split("=", 2)
+        : [raw, undefined];
     const value = inlineValue ?? args[i + 1];
 
     switch (arg) {
@@ -189,9 +192,15 @@ const main = async () => {
     `jobs=${options.jobs} concurrency=${options.concurrency} batch=${options.batchSize} queue=${options.queue}`
   );
   console.log(`redis=${options.redisUrl}`);
-  console.log(`enqueue: ${enqueueMs.toFixed(1)}ms (${formatRate(options.jobs, enqueueMs)} jobs/s)`);
-  console.log(`process: ${processMs.toFixed(1)}ms (${formatRate(options.jobs, processMs)} jobs/s)`);
-  console.log(`total:   ${totalMs.toFixed(1)}ms (${formatRate(options.jobs, totalMs)} jobs/s)`);
+  console.log(
+    `enqueue: ${enqueueMs.toFixed(1)}ms (${formatRate(options.jobs, enqueueMs)} jobs/s)`
+  );
+  console.log(
+    `process: ${processMs.toFixed(1)}ms (${formatRate(options.jobs, processMs)} jobs/s)`
+  );
+  console.log(
+    `total:   ${totalMs.toFixed(1)}ms (${formatRate(options.jobs, totalMs)} jobs/s)`
+  );
 };
 
 main().catch((error) => {

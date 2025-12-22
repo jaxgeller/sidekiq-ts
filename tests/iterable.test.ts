@@ -1,6 +1,14 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { IterableJob, IterableInterrupted } from "../src/index.js";
-import { generateJid } from "../src/job_util.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
+import { IterableInterrupted, IterableJob } from "../src/index.js";
+import { generateJid } from "../src/job-util.js";
 import { Sidekiq } from "../src/sidekiq.js";
 
 class MissingBuildEnumeratorJob extends IterableJob<[]> {

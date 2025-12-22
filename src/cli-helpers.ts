@@ -1,4 +1,4 @@
-import { Config } from "./config.js";
+import type { Config } from "./config.js";
 import type { Logger } from "./logger.js";
 
 export const DEFAULT_CONFIG_PATH = "sidekiq.json";
@@ -37,9 +37,10 @@ export const parseArgs = (argv: string[]): CliOptions => {
 
   for (let i = 0; i < args.length; i += 1) {
     const raw = args[i];
-    const [arg, inlineValue] = raw.startsWith("--") && raw.includes("=")
-      ? raw.split("=", 2)
-      : [raw, undefined];
+    const [arg, inlineValue] =
+      raw.startsWith("--") && raw.includes("=")
+        ? raw.split("=", 2)
+        : [raw, undefined];
     const value = inlineValue ?? args[i + 1];
 
     switch (arg) {
@@ -140,11 +141,11 @@ export const parseArgs = (argv: string[]): CliOptions => {
 };
 
 export const resolveEnvironment = (cliEnv?: string): string | undefined =>
-  cliEnv
-  ?? process.env.APP_ENV
-  ?? process.env.NODE_ENV
-  ?? process.env.RACK_ENV
-  ?? process.env.RAILS_ENV;
+  cliEnv ??
+  process.env.APP_ENV ??
+  process.env.NODE_ENV ??
+  process.env.RACK_ENV ??
+  process.env.RAILS_ENV;
 
 const suppressDebug = (logger: Logger): Logger => ({
   debug: () => {},

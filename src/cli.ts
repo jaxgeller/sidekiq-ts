@@ -3,13 +3,13 @@ import { access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Config } from "./config.js";
-import { loadConfigFile } from "./config_loader.js";
 import {
   applyCliOptions,
   parseArgs,
   resolveEnvironment,
-} from "./cli_helpers.js";
+} from "./cli-helpers.js";
+import { Config } from "./config.js";
+import { loadConfigFile } from "./config-loader.js";
 import { Sidekiq } from "./sidekiq.js";
 
 const printHelp = () => {
@@ -46,7 +46,10 @@ const printVersion = () => {
   console.log(`${name} ${version}`);
 };
 
-const registerSignal = (signal: string, handler: () => void | Promise<void>) => {
+const registerSignal = (
+  signal: string,
+  handler: () => void | Promise<void>
+) => {
   try {
     process.on(signal as NodeJS.Signals, () => {
       void handler();
@@ -109,7 +112,9 @@ const main = async () => {
       return;
     }
     quieting = true;
-    config.logger.info(() => `Received ${signal}, no longer accepting new work`);
+    config.logger.info(
+      () => `Received ${signal}, no longer accepting new work`
+    );
     await runner.quiet();
   };
 
@@ -125,7 +130,7 @@ const main = async () => {
         const className = payload
           ? typeof payload.class === "string"
             ? payload.class
-            : payload.class?.name ?? String(payload.class)
+            : (payload.class?.name ?? String(payload.class))
           : "unknown";
         const jid = payload?.jid ?? "unknown";
         const elapsed = entry.elapsed.toFixed(3);

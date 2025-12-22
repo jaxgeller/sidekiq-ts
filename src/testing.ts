@@ -1,9 +1,9 @@
-import { dumpJson, loadJson } from "./json.js";
-import { nowInMillis } from "./job_util.js";
-import { resolveJob } from "./registry.js";
 import type { Config } from "./config.js";
+import { ensureInterruptHandler } from "./interrupt-handler.js";
+import { nowInMillis } from "./job-util.js";
+import { dumpJson, loadJson } from "./json.js";
+import { resolveJob } from "./registry.js";
 import type { JobPayload } from "./types.js";
-import { ensureInterruptHandler } from "./interrupt_handler.js";
 
 export type TestMode = "disable" | "fake" | "inline";
 
@@ -70,7 +70,10 @@ export class Testing {
     Queues.push(job.queue, String(job.class), job);
   }
 
-  static async performInline(payload: JobPayload, config: Config): Promise<void> {
+  static async performInline(
+    payload: JobPayload,
+    config: Config
+  ): Promise<void> {
     ensureInterruptHandler(config);
     const job = loadJson(dumpJson(payload)) as JobPayload;
     const className = String(job.class);
@@ -82,9 +85,14 @@ export class Testing {
     instance.jid = job.jid;
     instance._context = { stopping: () => false };
 
-    await config.serverMiddleware.invoke(instance, job, job.queue ?? "default", async () => {
-      await instance.perform(...(job.args ?? []));
-    });
+    await config.serverMiddleware.invoke(
+      instance,
+      job,
+      job.queue ?? "default",
+      async () => {
+        await instance.perform(...(job.args ?? []));
+      }
+    );
   }
 }
 
@@ -132,7 +140,10 @@ export class Queues {
     this.jobsByClass.clear();
   }
 
-  private static ensure(map: Map<string, JobPayload[]>, key: string): JobPayload[] {
+  private static ensure(
+    map: Map<string, JobPayload[]>,
+    key: string
+  ): JobPayload[] {
     if (!map.has(key)) {
       map.set(key, []);
     }

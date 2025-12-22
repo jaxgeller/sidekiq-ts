@@ -1,17 +1,17 @@
-import { createClient } from "redis";
 import type { RedisClientOptions } from "redis";
-import { createLogger, type Logger } from "./logger.js";
-import type { RedisClient } from "./redis.js";
-import { MiddlewareChain } from "./middleware.js";
-import type { JobPayload } from "./types.js";
-import { DefaultJobLogger } from "./job_logger.js";
-import type { JobLogger } from "./types.js";
+import { createClient } from "redis";
 import { Context } from "./context.js";
+import { DefaultJobLogger } from "./job-logger.js";
+import { createLogger, type Logger } from "./logger.js";
+import { MiddlewareChain } from "./middleware.js";
+import type { RedisClient } from "./redis.js";
 import type {
   ConfigOptions,
-  LifecycleEvents,
-  ErrorHandler,
   DeathHandler,
+  ErrorHandler,
+  JobLogger,
+  JobPayload,
+  LifecycleEvents,
   StrictArgsMode,
 } from "./types.js";
 
@@ -53,10 +53,7 @@ export class Config {
     [string | unknown, JobPayload, string, RedisClient],
     JobPayload | false | null | undefined
   >;
-  serverMiddleware: MiddlewareChain<
-    [unknown, JobPayload, string],
-    unknown
-  >;
+  serverMiddleware: MiddlewareChain<[unknown, JobPayload, string], unknown>;
   private redisClient?: RedisClient;
 
   constructor(options: ConfigOptions = {}) {
@@ -76,7 +73,8 @@ export class Config {
     this.deadMaxJobs = options.deadMaxJobs ?? 10_000;
     this.deadTimeoutInSeconds =
       options.deadTimeoutInSeconds ?? 180 * 24 * 60 * 60;
-    this.backtraceCleaner = options.backtraceCleaner ?? ((backtrace) => backtrace);
+    this.backtraceCleaner =
+      options.backtraceCleaner ?? ((backtrace) => backtrace);
     this.maxIterationRuntime = options.maxIterationRuntime ?? null;
     this.skipDefaultJobLogging = options.skipDefaultJobLogging ?? false;
     this.loggedJobAttributes = options.loggedJobAttributes ?? ["tags"];

@@ -27,8 +27,18 @@ describe("Data API actions", () => {
   it("iterates queue entries and deletes by job record", async () => {
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();
     const payloads = [
-      Sidekiq.dumpJson({ class: "JobA", args: [], queue: "default", jid: "jid-1" }),
-      Sidekiq.dumpJson({ class: "JobA", args: [], queue: "default", jid: "jid-2" }),
+      Sidekiq.dumpJson({
+        class: "JobA",
+        args: [],
+        queue: "default",
+        jid: "jid-1",
+      }),
+      Sidekiq.dumpJson({
+        class: "JobA",
+        args: [],
+        queue: "default",
+        jid: "jid-2",
+      }),
     ];
     await redis.rPush("queue:default", payloads);
     await redis.sAdd("queues", ["default"]);
@@ -85,7 +95,9 @@ describe("Data API actions", () => {
       error_message: "boom",
       failed_at: Date.now(),
     };
-    await redis.zAdd("retry", [{ score: Date.now() / 1000, value: Sidekiq.dumpJson(payload) }]);
+    await redis.zAdd("retry", [
+      { score: Date.now() / 1000, value: Sidekiq.dumpJson(payload) },
+    ]);
 
     const entry = (await set.entries())[0];
     await entry.retry();
@@ -99,8 +111,18 @@ describe("Data API actions", () => {
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();
     const set = new RetrySet();
     const payloads = [
-      Sidekiq.dumpJson({ class: "RetryJob", args: [], queue: "default", jid: "jid-5" }),
-      Sidekiq.dumpJson({ class: "RetryJob", args: [], queue: "default", jid: "jid-6" }),
+      Sidekiq.dumpJson({
+        class: "RetryJob",
+        args: [],
+        queue: "default",
+        jid: "jid-5",
+      }),
+      Sidekiq.dumpJson({
+        class: "RetryJob",
+        args: [],
+        queue: "default",
+        jid: "jid-6",
+      }),
     ];
     await redis.zAdd("retry", [
       { score: Date.now() / 1000, value: payloads[0] },

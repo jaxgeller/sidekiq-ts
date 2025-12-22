@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, beforeEach, describe, it, expect } from "vitest";
-import { Sidekiq, Job, DefaultJobLogger } from "../src/index.js";
-import type { JobLogger, JobPayload } from "../src/types.js";
 import { setTimeout as sleep } from "node:timers/promises";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { DefaultJobLogger, Job, Sidekiq } from "../src/index.js";
+import type { JobLogger, JobPayload } from "../src/types.js";
 
 class LogJob extends Job<[number]> {
   async perform(_value: number) {
@@ -18,7 +18,11 @@ class RecorderLogger implements JobLogger {
     return await fn();
   }
 
-  async call<T>(payload: JobPayload, queue: string, fn: () => Promise<T> | T): Promise<T> {
+  async call<T>(
+    payload: JobPayload,
+    queue: string,
+    fn: () => Promise<T> | T
+  ): Promise<T> {
     this.callCalls += 1;
     return await fn();
   }

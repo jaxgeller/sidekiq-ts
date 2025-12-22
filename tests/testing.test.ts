@@ -1,5 +1,13 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect } from "vitest";
-import { Sidekiq, Job, Testing, Queues } from "../src/index.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
+import { Job, Queues, Sidekiq, Testing } from "../src/index.js";
 
 class TestJob extends Job<[number]> {
   static performed: number[] = [];

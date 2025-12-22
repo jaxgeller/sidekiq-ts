@@ -1,6 +1,6 @@
 import type { RedisClientOptions } from "redis";
-import type { Logger } from "./logger.js";
 import type { Config } from "./config.js";
+import type { Logger } from "./logger.js";
 
 export type StrictArgsMode = "raise" | "warn" | "none";
 
@@ -107,7 +107,11 @@ export interface JobPayload extends JobOptions {
 
 export interface JobLogger {
   prepare<T>(payload: JobPayload, fn: () => Promise<T> | T): Promise<T> | T;
-  call<T>(payload: JobPayload, queue: string, fn: () => Promise<T> | T): Promise<T> | T;
+  call<T>(
+    payload: JobPayload,
+    queue: string,
+    fn: () => Promise<T> | T
+  ): Promise<T> | T;
 }
 
 export interface BulkPayload extends JobOptions {

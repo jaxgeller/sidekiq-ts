@@ -1,11 +1,11 @@
-import { dumpJson, loadJson } from "./json.js";
-import { Sidekiq } from "./sidekiq.js";
-import { Job } from "./job.js";
 import {
   ITERATION_STATE_FLUSH_INTERVAL_SECONDS,
   ITERATION_STATE_TTL_SECONDS,
-} from "./iterable_constants.js";
-import { IterableAbort, IterableInterrupted } from "./iterable_errors.js";
+} from "./iterable-constants.js";
+import { IterableAbort, IterableInterrupted } from "./iterable-errors.js";
+import { Job } from "./job.js";
+import { dumpJson, loadJson } from "./json.js";
+import { Sidekiq } from "./sidekiq.js";
 
 type IterableEntry<TItem, TCursor> = [TItem, TCursor];
 
@@ -23,7 +23,7 @@ const freezeValue = <T>(value: T): T => {
 export class IterableJob<
   TArgs extends unknown[] = unknown[],
   TItem = unknown,
-  TCursor = unknown
+  TCursor = unknown,
 > extends Job<TArgs> {
   private executions = 0;
   private cursorValue: TCursor | null = null;
@@ -64,7 +64,8 @@ export class IterableJob<
     pipeline.hGet(key, "cancelled");
     pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
     const result = await pipeline.exec();
-    const cancelled = (result?.[1] as unknown as string | null | undefined) ?? null;
+    const cancelled =
+      (result?.[1] as unknown as string | null | undefined) ?? null;
     this.cancelledValue = cancelled ? Number(cancelled) : null;
     return Boolean(this.cancelledValue);
   }
@@ -86,11 +87,15 @@ export class IterableJob<
   buildEnumerator(
     ..._args: [...TArgs, { cursor: TCursor | null }]
   ): IterableSource<TItem, TCursor> | null {
-    throw new Error(`${this.constructor.name} must implement a 'buildEnumerator' method`);
+    throw new Error(
+      `${this.constructor.name} must implement a 'buildEnumerator' method`
+    );
   }
 
   async eachIteration(_item: TItem, ..._args: TArgs): Promise<void> {
-    throw new Error(`${this.constructor.name} must implement an 'eachIteration' method`);
+    throw new Error(
+      `${this.constructor.name} must implement an 'eachIteration' method`
+    );
   }
 
   protected arrayEnumerator(
@@ -129,9 +134,13 @@ export class IterableJob<
     this.executions += 1;
     this.startTime = this.monoNow();
 
-    const enumerator = this.buildEnumerator(...args, { cursor: this.cursorValue });
+    const enumerator = this.buildEnumerator(...args, {
+      cursor: this.cursorValue,
+    });
     if (!enumerator) {
-      this.logger().info(() => "'buildEnumerator' returned nil, skipping the job.");
+      this.logger().info(
+        () => "'buildEnumerator' returned nil, skipping the job."
+      );
       return;
     }
     const iterator = this.assertEnumerator(enumerator);
@@ -283,7 +292,10 @@ export class IterableJob<
         `buildEnumerator must return an Iterator, but returned ${source.constructor.name}.`
       );
     }
-    if (typeof (source as Iterator<IterableEntry<TItem, TCursor>>).next === "function") {
+    if (
+      typeof (source as Iterator<IterableEntry<TItem, TCursor>>).next ===
+      "function"
+    ) {
       return source as Iterator<IterableEntry<TItem, TCursor>>;
     }
     const iterable = source as Iterable<IterableEntry<TItem, TCursor>>;
@@ -292,7 +304,8 @@ export class IterableJob<
     }
     const typeName =
       source && typeof source === "object"
-        ? (source as { constructor?: { name?: string } }).constructor?.name ?? "Object"
+        ? ((source as { constructor?: { name?: string } }).constructor?.name ??
+          "Object")
         : typeof source;
     throw new Error(
       `buildEnumerator must return an Iterator, but returned ${typeName}.`
@@ -320,7 +333,8 @@ export class IterableJob<
     pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
     pipeline.hGet(key, "cancelled");
     const result = await pipeline.exec();
-    const cancelled = (result?.[2] as unknown as string | null | undefined) ?? null;
+    const cancelled =
+      (result?.[2] as unknown as string | null | undefined) ?? null;
     return cancelled ? Number(cancelled) : null;
   }
 

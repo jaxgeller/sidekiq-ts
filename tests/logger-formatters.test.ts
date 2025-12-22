@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  Context,
-  SidekiqLogger,
-} from "../src/index.js";
+import { Context, SidekiqLogger } from "../src/index.js";
 import {
   createLogger,
   Formatters,
@@ -30,11 +27,17 @@ describe("Logger formatters", () => {
 
   it("formats pretty/plain output with context", () => {
     const messages: string[] = [];
-    const logger = new SidekiqLogger(fakeConsole(messages), new PlainFormatter());
+    const logger = new SidekiqLogger(
+      fakeConsole(messages),
+      new PlainFormatter()
+    );
 
-    Context.with({ class: "LogJob", jid: "jid-1", tags: ["alpha", "beta"] }, () => {
-      logger.info("hello");
-    });
+    Context.with(
+      { class: "LogJob", jid: "jid-1", tags: ["alpha", "beta"] },
+      () => {
+        logger.info("hello");
+      }
+    );
 
     expect(messages).toHaveLength(1);
     const line = messages[0];
@@ -49,7 +52,10 @@ describe("Logger formatters", () => {
 
   it("emits JSON logs with optional context", () => {
     const messages: string[] = [];
-    const logger = new SidekiqLogger(fakeConsole(messages), new JsonFormatter());
+    const logger = new SidekiqLogger(
+      fakeConsole(messages),
+      new JsonFormatter()
+    );
 
     logger.debug("boom");
     Context.with({ jid: "1234abc" }, () => {
@@ -57,10 +63,23 @@ describe("Logger formatters", () => {
     });
 
     const [first, second] = messages.map((line) => JSON.parse(line));
-    expect(Object.keys(first).sort()).toEqual(["lvl", "msg", "pid", "tid", "ts"]);
+    expect(Object.keys(first).sort()).toEqual([
+      "lvl",
+      "msg",
+      "pid",
+      "tid",
+      "ts",
+    ]);
     expect(first.ctx).toBeUndefined();
     expect(first.lvl).toBe("DEBUG");
-    expect(Object.keys(second).sort()).toEqual(["ctx", "lvl", "msg", "pid", "tid", "ts"]);
+    expect(Object.keys(second).sort()).toEqual([
+      "ctx",
+      "lvl",
+      "msg",
+      "pid",
+      "tid",
+      "ts",
+    ]);
     expect(second.ctx.jid).toBe("1234abc");
     expect(second.lvl).toBe("INFO");
   });

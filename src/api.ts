@@ -1,9 +1,9 @@
-import { Sidekiq } from "./sidekiq.js";
-import { dumpJson, loadJson } from "./json.js";
 import { Client } from "./client.js";
 import type { Config } from "./config.js";
-import type { JobPayload } from "./types.js";
+import { dumpJson, loadJson } from "./json.js";
 import type { RedisClient } from "./redis.js";
+import { Sidekiq } from "./sidekiq.js";
+import type { JobPayload } from "./types.js";
 
 const getRedis = async (config?: Config): Promise<RedisClient> =>
   (config ?? Sidekiq.defaultConfiguration).getRedisClient();
@@ -98,13 +98,19 @@ export class Stats {
     }
 
     const nowMs = Date.now();
-    const diffMs = enqueuedAt > 1_000_000_000_000 ? nowMs - enqueuedAt : nowMs - enqueuedAt * 1000;
+    const diffMs =
+      enqueuedAt > 1_000_000_000_000
+        ? nowMs - enqueuedAt
+        : nowMs - enqueuedAt * 1000;
     return diffMs / 1000;
   }
 
   async reset(...stats: Array<string | number | symbol>): Promise<void> {
-    const targets = stats.length === 0 ? ["processed", "failed"] : stats.map(String);
-    const allowed = targets.filter((stat) => stat === "processed" || stat === "failed");
+    const targets =
+      stats.length === 0 ? ["processed", "failed"] : stats.map(String);
+    const allowed = targets.filter(
+      (stat) => stat === "processed" || stat === "failed"
+    );
     if (allowed.length === 0) {
       return;
     }
@@ -141,17 +147,23 @@ export class StatsHistory {
   private daysPrevious: number;
   private startDate: Date;
 
-  constructor(daysPrevious: number, startDate: Date = new Date(), config?: Config) {
+  constructor(
+    daysPrevious: number,
+    startDate: Date = new Date(),
+    config?: Config
+  ) {
     if (daysPrevious < 1 || daysPrevious > 5 * 365) {
       throw new Error("daysPrevious must be between 1 and 1825");
     }
     this.config = config;
     this.daysPrevious = daysPrevious;
-    this.startDate = new Date(Date.UTC(
-      startDate.getUTCFullYear(),
-      startDate.getUTCMonth(),
-      startDate.getUTCDate()
-    ));
+    this.startDate = new Date(
+      Date.UTC(
+        startDate.getUTCFullYear(),
+        startDate.getUTCMonth(),
+        startDate.getUTCDate()
+      )
+    );
   }
 
   async processed(): Promise<Record<string, number>> {
@@ -162,7 +174,9 @@ export class StatsHistory {
     return this.dateStat("failed");
   }
 
-  private async dateStat(stat: "processed" | "failed"): Promise<Record<string, number>> {
+  private async dateStat(
+    stat: "processed" | "failed"
+  ): Promise<Record<string, number>> {
     const dates: string[] = [];
     for (let i = 0; i < this.daysPrevious; i += 1) {
       const date = new Date(this.startDate);
@@ -184,7 +198,7 @@ export class Queue {
   private config?: Config;
   readonly name: string;
 
-  constructor(name: string = "default", config?: Config) {
+  constructor(name = "default", config?: Config) {
     this.name = name;
     this.config = config;
   }
@@ -238,7 +252,10 @@ export class Queue {
       return 0;
     }
     const nowMs = Date.now();
-    const diffMs = enqueuedAt > 1_000_000_000_000 ? nowMs - enqueuedAt : nowMs - enqueuedAt * 1000;
+    const diffMs =
+      enqueuedAt > 1_000_000_000_000
+        ? nowMs - enqueuedAt
+        : nowMs - enqueuedAt * 1000;
     return diffMs / 1000;
   }
 
@@ -413,7 +430,9 @@ class JobSet extends SortedSet {
 
   async schedule(timestamp: number, payload: JobPayload): Promise<void> {
     const redis = await getRedis(this.config);
-    await redis.zAdd(this.key, [{ score: timestamp, value: dumpJson(payload) }]);
+    await redis.zAdd(this.key, [
+      { score: timestamp, value: dumpJson(payload) },
+    ]);
   }
 
   async retryAll(): Promise<void> {
@@ -514,7 +533,10 @@ export class DeadSet extends JobSet {
     super("dead", config);
   }
 
-  async kill(payload: string | JobPayload, options: { trim?: boolean } = {}): Promise<void> {
+  async kill(
+    payload: string | JobPayload,
+    options: { trim?: boolean } = {}
+  ): Promise<void> {
     const redis = await getRedis(this.config);
     const nowSeconds = Date.now() / 1000;
     const value = typeof payload === "string" ? payload : dumpJson(payload);
@@ -526,8 +548,11 @@ export class DeadSet extends JobSet {
 
   async trim(): Promise<void> {
     const redis = await getRedis(this.config);
-    const maxJobs = this.config?.deadMaxJobs ?? Sidekiq.defaultConfiguration.deadMaxJobs;
-    const timeout = this.config?.deadTimeoutInSeconds ?? Sidekiq.defaultConfiguration.deadTimeoutInSeconds;
+    const maxJobs =
+      this.config?.deadMaxJobs ?? Sidekiq.defaultConfiguration.deadMaxJobs;
+    const timeout =
+      this.config?.deadTimeoutInSeconds ??
+      Sidekiq.defaultConfiguration.deadTimeoutInSeconds;
     const cutoff = Date.now() / 1000 - timeout;
     const pipeline = redis.multi();
     pipeline.zRemRangeByScore(this.key, 0, cutoff);
@@ -553,7 +578,10 @@ export class ProcessSet {
     this.config = config;
   }
 
-  static async get(identity: string, config?: Config): Promise<ProcessInfoEntry | null> {
+  static async get(
+    identity: string,
+    config?: Config
+  ): Promise<ProcessInfoEntry | null> {
     const redis = await getRedis(config);
     const pipeline = redis.multi();
     pipeline.sIsMember("processes", identity);
@@ -564,7 +592,9 @@ export class ProcessSet {
     if (exists === 0 || Object.keys(raw).length === 0) {
       return null;
     }
-    const info = raw.info ? (loadJson(raw.info) as Record<string, unknown>) : {};
+    const info = raw.info
+      ? (loadJson(raw.info) as Record<string, unknown>)
+      : {};
     return {
       identity,
       info,
@@ -589,7 +619,9 @@ export class ProcessSet {
     const result = await pipeline.exec();
     return processes.map((identity, index) => {
       const raw = (result?.[index] ?? {}) as unknown as Record<string, string>;
-      const info = raw.info ? (loadJson(raw.info) as Record<string, unknown>) : {};
+      const info = raw.info
+        ? (loadJson(raw.info) as Record<string, unknown>)
+        : {};
       return {
         identity,
         info,
@@ -674,7 +706,11 @@ export class Workers {
     processes.forEach((identity, index) => {
       const work = (result?.[index] ?? {}) as unknown as Record<string, string>;
       Object.entries(work).forEach(([thread, value]) => {
-        const parsed = loadJson(value) as { queue: string; payload: string; run_at: number };
+        const parsed = loadJson(value) as {
+          queue: string;
+          payload: string;
+          run_at: number;
+        };
         const payload = loadJson(parsed.payload) as JobPayload;
         entries.push({
           process: identity,

@@ -59,7 +59,10 @@ export class MiddlewareChain<TArgs extends unknown[], TResult> {
     this.add(klass, ...args);
   }
 
-  prepend(klass: MiddlewareConstructor<TArgs, TResult>, ...args: unknown[]): void {
+  prepend(
+    klass: MiddlewareConstructor<TArgs, TResult>,
+    ...args: unknown[]
+  ): void {
     this.remove(klass);
     this.entries.unshift(new MiddlewareEntry(this.config, klass, args));
   }

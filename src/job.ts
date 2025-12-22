@@ -1,8 +1,13 @@
-import type { JobOptions, JobPayload, JobSetterOptions, BulkOptions } from "./types.js";
-import { Sidekiq } from "./sidekiq.js";
 import { Client } from "./client.js";
-import { normalizeItem, verifyJson } from "./job_util.js";
+import { normalizeItem, verifyJson } from "./job-util.js";
+import { Sidekiq } from "./sidekiq.js";
 import { EmptyQueueError, Queues } from "./testing.js";
+import type {
+  BulkOptions,
+  JobOptions,
+  JobPayload,
+  JobSetterOptions,
+} from "./types.js";
 
 const OPTIONS_KEY = Symbol("sidekiqOptions");
 
@@ -21,7 +26,10 @@ export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   performAsync(...args: TArgs): Promise<string | null>;
   performIn(interval: number, ...args: TArgs): Promise<string | null>;
   performAt(timestamp: number, ...args: TArgs): Promise<string | null>;
-  performBulk(args: TArgs[][], options?: BulkOptions): Promise<(string | null)[]>;
+  performBulk(
+    args: TArgs[][],
+    options?: BulkOptions
+  ): Promise<(string | null)[]>;
   performInline(...args: TArgs): Promise<boolean | null>;
   jobs(): JobPayload[];
   clear(): void;
@@ -38,7 +46,8 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
   static getSidekiqOptions(this: JobConstructor): JobOptions {
     const base = Sidekiq.defaultJobOptions();
     const explicit = this.sidekiqOptions ?? {};
-    const stored = (this as unknown as Record<symbol, JobOptions>)[OPTIONS_KEY] ?? {};
+    const stored =
+      (this as unknown as Record<symbol, JobOptions>)[OPTIONS_KEY] ?? {};
     return {
       ...base,
       ...explicit,
@@ -47,7 +56,8 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
   }
 
   static setSidekiqOptions(this: JobConstructor, options: JobOptions): void {
-    const stored = (this as unknown as Record<symbol, JobOptions>)[OPTIONS_KEY] ?? {};
+    const stored =
+      (this as unknown as Record<symbol, JobOptions>)[OPTIONS_KEY] ?? {};
     (this as unknown as Record<symbol, JobOptions>)[OPTIONS_KEY] = {
       ...stored,
       ...options,
@@ -62,7 +72,10 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     this.sidekiqRetryIn = handler;
   }
 
-  static retriesExhausted(this: JobConstructor, handler: RetriesExhaustedHandler): void {
+  static retriesExhausted(
+    this: JobConstructor,
+    handler: RetriesExhaustedHandler
+  ): void {
     this.sidekiqRetriesExhausted = handler;
   }
 
@@ -126,7 +139,11 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
   static async drain(this: JobConstructor): Promise<void> {
     while (this.jobs().length > 0) {
       const nextJob = this.jobs()[0];
-      Queues.deleteFor(nextJob.jid ?? "", nextJob.queue ?? "default", this.name);
+      Queues.deleteFor(
+        nextJob.jid ?? "",
+        nextJob.queue ?? "default",
+        this.name
+      );
       await this.processJob(nextJob);
     }
   }
@@ -140,7 +157,10 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     await this.processJob(nextJob);
   }
 
-  static async processJob(this: JobConstructor, payload: JobPayload): Promise<void> {
+  static async processJob(
+    this: JobConstructor,
+    payload: JobPayload
+  ): Promise<void> {
     const instance = new this();
     instance.jid = payload.jid;
     instance._context = { stopping: () => false };
@@ -172,7 +192,10 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     }
   }
 
-  static async clientPush(this: JobConstructor, item: JobPayload): Promise<string | null> {
+  static async clientPush(
+    this: JobConstructor,
+    item: JobPayload
+  ): Promise<string | null> {
     const config = Sidekiq.defaultConfiguration;
     const normalized = normalizeItem(item, Sidekiq.defaultJobOptions());
     verifyJson(normalized.args, config.strictArgs);
@@ -260,7 +283,10 @@ export class JobSetter<TArgs extends unknown[] = unknown[]> {
     return true;
   }
 
-  performBulk(args: TArgs[][], options?: BulkOptions): Promise<(string | null)[]> {
+  performBulk(
+    args: TArgs[][],
+    options?: BulkOptions
+  ): Promise<(string | null)[]> {
     const payload: JobPayload = {
       ...this.options,
       class: this.klass,

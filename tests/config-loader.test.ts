@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
-import { loadConfigFile } from "../src/config_loader.js";
+import { describe, expect, it } from "vitest";
+import { loadConfigFile } from "../src/config-loader.js";
 
 const writeConfig = async (data: object) => {
   const path = join(tmpdir(), `sidekiq-ts-${Date.now()}.json`);
@@ -48,7 +48,9 @@ describe("config loader", () => {
       },
     });
 
-    const { config, requirePaths } = await loadConfigFile(path, { environment: "development" });
+    const { config, requirePaths } = await loadConfigFile(path, {
+      environment: "development",
+    });
     expect(config.concurrency).toBe(12);
     expect(requirePaths).toEqual(["./jobs/dev.js"]);
   });
@@ -63,7 +65,9 @@ describe("config loader", () => {
       },
     });
 
-    const { config } = await loadConfigFile(path, { environment: "production" });
+    const { config } = await loadConfigFile(path, {
+      environment: "production",
+    });
     expect(config.timeout).toBe(60);
   });
 });

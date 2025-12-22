@@ -61,9 +61,12 @@ describe("Context", () => {
     } as unknown as Console;
     const logger = createLogger(base);
 
-    Context.with({ class: "HaikuJob", jid: "1234abc", tags: ["alpha", "beta"] }, () => {
-      logger.info("hello context");
-    });
+    Context.with(
+      { class: "HaikuJob", jid: "1234abc", tags: ["alpha", "beta"] },
+      () => {
+        logger.info("hello context");
+      }
+    );
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("hello context");

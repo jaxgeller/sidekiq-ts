@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Config } from "../src/config.js";
-import type { Logger } from "../src/logger.js";
 import {
-  DEFAULT_CONFIG_PATH,
   applyCliOptions,
+  type CliOptions,
+  DEFAULT_CONFIG_PATH,
   parseArgs,
   resolveEnvironment,
-  type CliOptions,
-} from "../src/cli_helpers.js";
+} from "../src/cli-helpers.js";
+import { Config } from "../src/config.js";
+import type { Logger } from "../src/logger.js";
 
 const baseOptions = (): CliOptions => ({
   configPath: DEFAULT_CONFIG_PATH,

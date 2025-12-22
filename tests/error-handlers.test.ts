@@ -1,8 +1,16 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Sidekiq, Job, SidekiqLogger } from "../src/index.js";
-import { PlainFormatter } from "../src/logger.js";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import type { Config } from "../src/config.js";
+import { Job, Sidekiq, SidekiqLogger } from "../src/index.js";
+import { PlainFormatter } from "../src/logger.js";
 
 class ErrorJob extends Job<[]> {
   static sidekiqOptions = { retry: false };
