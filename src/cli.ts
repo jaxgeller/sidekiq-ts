@@ -190,6 +190,16 @@ const printVersion = () => {
   console.log(`${name} ${version}`);
 };
 
+const registerSignal = (signal: string, handler: () => void | Promise<void>) => {
+  try {
+    process.on(signal as NodeJS.Signals, () => {
+      void handler();
+    });
+  } catch {
+    // Signal not supported on this platform.
+  }
+};
+
 const main = async () => {
   const options = parseArgs(process.argv);
   if (options.showHelp) {
@@ -243,20 +253,62 @@ const main = async () => {
   }
 
   const runner = await Sidekiq.run({ config });
+  let shuttingDown = false;
+  let quieting = false;
 
-  const shutdown = async () => {
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    config.logger.info(() => `Received ${signal}, shutting down`);
     await runner.stop();
     process.exit(0);
   };
 
-  const quiet = async () => {
-    config.logger.info(() => "Received TSTP, no longer accepting new work");
+  const quiet = async (signal: string) => {
+    if (quieting) {
+      return;
+    }
+    quieting = true;
+    config.logger.info(() => `Received ${signal}, no longer accepting new work`);
     await runner.quiet();
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-  process.on("SIGTSTP", quiet);
+  const dumpState = (signal: string) => {
+    config.logger.warn(() => `Received ${signal}, dumping state`);
+    const snapshot = runner.snapshotWork();
+    if (snapshot.length === 0) {
+      config.logger.warn(() => "No active jobs");
+    } else {
+      config.logger.warn(() => `Active jobs: ${snapshot.length}`);
+      snapshot.forEach((entry) => {
+        const payload = entry.payload;
+        const className = payload
+          ? typeof payload.class === "string"
+            ? payload.class
+            : payload.class?.name ?? String(payload.class)
+          : "unknown";
+        const jid = payload?.jid ?? "unknown";
+        const elapsed = entry.elapsed.toFixed(3);
+        config.logger.warn(
+          () =>
+            `Worker ${entry.workerId} class=${className} jid=${jid} queue=${entry.queue} elapsed=${elapsed}s`
+        );
+      });
+    }
+    const stack = new Error("Signal stack").stack;
+    if (stack) {
+      const lines = stack.split("\n").slice(1).join("\n");
+      config.logger.warn(() => `Current stack:\n${lines}`);
+    }
+  };
+
+  registerSignal("SIGINT", () => shutdown("SIGINT"));
+  registerSignal("SIGTERM", () => shutdown("SIGTERM"));
+  registerSignal("SIGTSTP", () => quiet("SIGTSTP"));
+  registerSignal("SIGTTIN", () => dumpState("SIGTTIN"));
+  registerSignal("SIGINFO", () => dumpState("SIGINFO"));
 };
 
 main().catch((error) => {

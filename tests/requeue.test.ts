@@ -61,4 +61,21 @@ describe("Shutdown requeue", () => {
       release?.();
     }
   });
+
+  it("captures in-progress jobs in snapshot", async () => {
+    const runner = await Sidekiq.run();
+    try {
+      await BlockingJob.performAsync();
+      await waitFor(() => started === true);
+
+      const snapshot = runner.snapshotWork();
+      expect(snapshot).toHaveLength(1);
+      expect(snapshot[0].queue).toBe("default");
+      expect(snapshot[0].payload?.class).toBe("BlockingJob");
+      expect(snapshot[0].elapsed).toBeGreaterThanOrEqual(0);
+    } finally {
+      release?.();
+      await runner.stop();
+    }
+  });
 });

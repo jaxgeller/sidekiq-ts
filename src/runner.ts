@@ -104,6 +104,15 @@ class QueueStrategy {
   }
 }
 
+export interface WorkSnapshot {
+  workerId: string;
+  queue: string;
+  payloadRaw: string;
+  payload?: JobPayload;
+  runAt: number;
+  elapsed: number;
+}
+
 export class Runner {
   private config: Config;
   private quieting = false;
@@ -167,6 +176,28 @@ export class Runner {
         }
       })
     );
+  }
+
+  snapshotWork(): WorkSnapshot[] {
+    const now = Date.now();
+    const entries: WorkSnapshot[] = [];
+    for (const [workerId, value] of this.workState.entries()) {
+      let payload: JobPayload | undefined;
+      try {
+        payload = loadJson(value.payload) as JobPayload;
+      } catch {
+        payload = undefined;
+      }
+      entries.push({
+        workerId,
+        queue: value.queue,
+        payloadRaw: value.payload,
+        payload,
+        runAt: value.runAt,
+        elapsed: (now - value.runAt) / 1000,
+      });
+    }
+    return entries;
   }
 
   private startScheduler(): void {

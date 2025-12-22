@@ -241,6 +241,7 @@ Runner API
 - `Sidekiq.registerJob(JobClass): void`
 - `Runner.quiet()` (stop fetching new jobs)
 - `Runner.stop()` (graceful shutdown)
+- `Runner.snapshotWork()` (inspect in-progress jobs)
 - `Runner.restart()` (optional)
 
 CLI
@@ -248,6 +249,8 @@ CLI
 - CLI flags override config file settings when provided.
 - Options: `-C/--config`, `-c/--concurrency`, `-e/--environment`, `-g/--tag`,
   `-q/--queue`, `-r/--require`, `-t/--timeout`, `-v/--verbose`, `-V/--version`.
+- Signals: `SIGINT`/`SIGTERM` shut down, `SIGTSTP` quiets, `SIGINFO`/`SIGTTIN`
+  dump active jobs and the current stack.
 
 ### Testing
 Testing mode mimics Sidekiq's fake/inline behavior.
