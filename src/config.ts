@@ -166,7 +166,8 @@ export class Config {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         this.logger.error(
-          () => `Exception during Sidekiq lifecycle event ${event}: ${err.message}`
+          () =>
+            `Exception during Sidekiq lifecycle event ${event}: ${err.message}`
         );
         if (reraise) {
           throw err;

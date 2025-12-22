@@ -177,7 +177,9 @@ export class Runner {
   }
 
   async stop(): Promise<void> {
-    this.quieting = true;
+    if (!this.quieting) {
+      await this.quiet();
+    }
     this.stopping = true;
     await this.config.fireEvent("shutdown", { reverse: true });
     this.stopHeartbeat();

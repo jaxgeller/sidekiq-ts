@@ -134,6 +134,56 @@ describe("Lifecycle Events", () => {
     expect(events.indexOf("shutdown")).toBeLessThan(events.indexOf("exit"));
   });
 
+  it("fires complete lifecycle order: startup -> quiet -> shutdown -> exit", async () => {
+    const events: string[] = [];
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      lifecycleEvents: {
+        startup: [() => events.push("startup")],
+        quiet: [() => events.push("quiet")],
+        shutdown: [() => events.push("shutdown")],
+        exit: [() => events.push("exit")],
+        heartbeat: [],
+        beat: [],
+      },
+    });
+
+    const runner = await Sidekiq.run({ config });
+    // stop() should fire quiet, shutdown, exit in order
+    await runner.stop();
+    await config.close();
+
+    expect(events).toEqual(["startup", "quiet", "shutdown", "exit"]);
+  });
+
+  it("does not fire quiet twice if already quiet", async () => {
+    const events: string[] = [];
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      lifecycleEvents: {
+        startup: [() => events.push("startup")],
+        quiet: [() => events.push("quiet")],
+        shutdown: [() => events.push("shutdown")],
+        exit: [() => events.push("exit")],
+        heartbeat: [],
+        beat: [],
+      },
+    });
+
+    const runner = await Sidekiq.run({ config });
+    await runner.quiet(); // explicit quiet
+    await runner.stop(); // should not fire quiet again
+    await config.close();
+
+    expect(events).toEqual(["startup", "quiet", "shutdown", "exit"]);
+  });
+
   it("fires heartbeat events on each heartbeat cycle", async () => {
     let heartbeatCount = 0;
     const config = new Config({
