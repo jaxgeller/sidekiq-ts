@@ -12,6 +12,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "test": "vitest",
+    "typecheck": "tsc --noEmit",
     "test:run": "vitest run",
     "bench": "tsx scripts/benchmark.ts"
   },

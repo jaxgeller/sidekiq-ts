@@ -330,7 +330,7 @@ export class Runner {
           `Redis RTT is high (${this.rttReadings.join(", ")} us). ` +
           "Consider lowering concurrency or colocating Redis."
       );
-      this.rttReadings = [];
+      this.rttReadings.length = 0;
     }
   }
 
