@@ -259,9 +259,11 @@ Testing API
 ### Data API
 - `Stats` (processed, failed, enqueued, queue sizes, latency, reset)
 - `StatsHistory` (per-day processed/failed counts)
-- `Queue` (list/enumerate jobs in a queue, latency)
-- `ScheduledSet`, `RetrySet`, `DeadSet` (ZSET-based)
-- `ProcessSet`/`Workers` (server process info and active work, cleanup)
+- `Queue` (list/enumerate jobs in a queue, latency, find/delete)
+- `JobRecord` (queue job wrapper with `delete`)
+- `ScheduledSet`, `RetrySet`, `DeadSet` (ZSET-based, scan/entries, entry actions)
+- `SortedEntry` (zset entry wrapper with `delete`, `reschedule`, `retry`, `kill`)
+- `ProcessSet`/`Workers` (server process info and active work, cleanup, totals)
 
 ## Redis schema compatibility
 - Match Sidekiq's Redis schema and payloads exactly (key names, structures, timestamps, stats).
@@ -335,7 +337,6 @@ Phase 6: Iterable jobs (done)
 - Redis sharding/pools (`redis_pool`, `redis_info`, adapter), plus job-level `set(pool:)` targeting.
 - CLI parity (YAML/ERB config, daemonize/logfile/pidfile, env/require handling, signal handlers, `sidekiqmon` monitor CLI).
 - Systemd/sd_notify integration.
-- Data API actions: `Queue#each/find_job`, `JobRecord`, `SortedSet`/`JobSet` actions (`scan`, `delete`, `retry`, `kill`, `reschedule`, `retry_all`, `kill_all`), `DeadSet#kill`, richer `ProcessSet` helpers.
 - Logger level filtering (`with_level`, debug?/info? methods) and `Sidekiq::Component`-style `handle_exception` plumbing.
 
 ## Open questions

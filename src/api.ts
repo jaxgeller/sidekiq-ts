@@ -1,13 +1,9 @@
 import { Sidekiq } from "./sidekiq.js";
-import { loadJson } from "./json.js";
+import { dumpJson, loadJson } from "./json.js";
+import { Client } from "./client.js";
 import type { Config } from "./config.js";
 import type { JobPayload } from "./types.js";
 import type { RedisClient } from "./redis.js";
-
-export interface SortedEntry {
-  score: number;
-  payload: JobPayload;
-}
 
 const getRedis = async (config?: Config): Promise<RedisClient> =>
   (config ?? Sidekiq.defaultConfiguration).getRedisClient();
@@ -193,6 +189,12 @@ export class Queue {
     this.config = config;
   }
 
+  static async all(config?: Config): Promise<Queue[]> {
+    const redis = await getRedis(config);
+    const queues = await redis.sMembers("queues");
+    return queues.sort().map((queue) => new Queue(queue, config));
+  }
+
   async size(): Promise<number> {
     const redis = await getRedis(this.config);
     return Number(await redis.lLen(`queue:${this.name}`));
@@ -200,7 +202,10 @@ export class Queue {
 
   async clear(): Promise<void> {
     const redis = await getRedis(this.config);
-    await redis.del(`queue:${this.name}`);
+    const pipeline = redis.multi();
+    pipeline.unlink(`queue:${this.name}`);
+    pipeline.sRem("queues", [this.name]);
+    await pipeline.exec();
   }
 
   async entries(start = 0, stop = -1): Promise<JobPayload[]> {
@@ -236,6 +241,60 @@ export class Queue {
     const diffMs = enqueuedAt > 1_000_000_000_000 ? nowMs - enqueuedAt : nowMs - enqueuedAt * 1000;
     return diffMs / 1000;
   }
+
+  async *each(pageSize = 50): AsyncGenerator<JobRecord> {
+    const redis = await getRedis(this.config);
+    const initialSize = await redis.lLen(`queue:${this.name}`);
+    let deletedSize = 0;
+    let page = 0;
+    while (true) {
+      const start = Math.max(page * pageSize - deletedSize, 0);
+      const end = start + pageSize - 1;
+      const entries = await redis.lRange(`queue:${this.name}`, start, end);
+      if (entries.length === 0) {
+        break;
+      }
+      page += 1;
+      for (const entry of entries) {
+        yield new JobRecord(entry, this.name, this.config);
+      }
+      const size = await redis.lLen(`queue:${this.name}`);
+      deletedSize = Math.max(initialSize - size, 0);
+    }
+  }
+
+  async findJob(jid: string): Promise<JobRecord | null> {
+    for await (const record of this.each()) {
+      if (record.jid === jid) {
+        return record;
+      }
+    }
+    return null;
+  }
+}
+
+export class JobRecord {
+  readonly queue: string;
+  readonly value: string;
+  readonly payload: JobPayload;
+  private config?: Config;
+
+  constructor(value: string, queue: string, config?: Config) {
+    this.value = value;
+    this.queue = queue;
+    this.config = config;
+    this.payload = loadJson(value) as JobPayload;
+  }
+
+  get jid(): string | undefined {
+    return typeof this.payload.jid === "string" ? this.payload.jid : undefined;
+  }
+
+  async delete(): Promise<boolean> {
+    const redis = await getRedis(this.config);
+    const removed = await redis.lRem(`queue:${this.queue}`, 1, this.value);
+    return removed > 0;
+  }
 }
 
 class SortedSet {
@@ -256,7 +315,47 @@ class SortedSet {
     const redis = await getRedis(this.config);
     await redis.sendCommand(["ZREMRANGEBYRANK", this.key, "0", "-1"]);
   }
+}
 
+export class SortedEntry {
+  readonly score: number;
+  readonly payload: JobPayload;
+  readonly value: string;
+  private parent: JobSet;
+
+  constructor(parent: JobSet, score: number, value: string) {
+    this.parent = parent;
+    this.score = score;
+    this.value = value;
+    this.payload = loadJson(value) as JobPayload;
+  }
+
+  get jid(): string | undefined {
+    return typeof this.payload.jid === "string" ? this.payload.jid : undefined;
+  }
+
+  async delete(): Promise<void> {
+    await this.parent.deleteByValue(this.value);
+  }
+
+  async reschedule(at: number): Promise<void> {
+    await this.parent.rescheduleValue(this.value, at);
+  }
+
+  async addToQueue(): Promise<void> {
+    await this.parent.addToQueueValue(this.value);
+  }
+
+  async retry(): Promise<void> {
+    await this.parent.retryValue(this.value);
+  }
+
+  async kill(): Promise<void> {
+    await this.parent.killValue(this.value);
+  }
+}
+
+class JobSet extends SortedSet {
   async entries(start = 0, stop = -1): Promise<SortedEntry[]> {
     const redis = await getRedis(this.config);
     const response = (await redis.sendCommand([
@@ -268,29 +367,172 @@ class SortedSet {
     ])) as string[];
     const entries: SortedEntry[] = [];
     for (let i = 0; i < response.length; i += 2) {
-      const payload = loadJson(response[i]) as JobPayload;
+      const value = response[i];
       const score = Number(response[i + 1]);
-      entries.push({ score, payload });
+      entries.push(new SortedEntry(this, score, value));
     }
     return entries;
   }
+
+  async *scan(match: string, count = 100): AsyncGenerator<SortedEntry> {
+    const redis = await getRedis(this.config);
+    const pattern = match.includes("*") ? match : `*${match}*`;
+    let cursor = "0";
+    do {
+      const response = (await redis.sendCommand([
+        "ZSCAN",
+        this.key,
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        String(count),
+      ])) as [string, string[]];
+      cursor = response[0];
+      const items = response[1] ?? [];
+      for (let i = 0; i < items.length; i += 2) {
+        const value = items[i];
+        const score = Number(items[i + 1]);
+        yield new SortedEntry(this, score, value);
+      }
+    } while (cursor !== "0");
+  }
+
+  async *each(): AsyncGenerator<SortedEntry> {
+    yield* this.scan("*");
+  }
+
+  async findJob(jid: string): Promise<SortedEntry | null> {
+    for await (const entry of this.scan(jid)) {
+      if (entry.jid === jid) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  async schedule(timestamp: number, payload: JobPayload): Promise<void> {
+    const redis = await getRedis(this.config);
+    await redis.zAdd(this.key, [{ score: timestamp, value: dumpJson(payload) }]);
+  }
+
+  async retryAll(): Promise<void> {
+    const client = new Client({ config: this.config });
+    await this.popEach(async (value) => {
+      const payload = loadJson(value) as JobPayload;
+      if (typeof payload.retry_count === "number") {
+        payload.retry_count -= 1;
+      }
+      await client.push(payload);
+    });
+  }
+
+  async killAll(): Promise<void> {
+    const dead = new DeadSet(this.config);
+    await this.popEach(async (value) => {
+      await dead.kill(value, { trim: false });
+    });
+    await dead.trim();
+  }
+
+  async deleteByValue(value: string): Promise<void> {
+    const redis = await getRedis(this.config);
+    await redis.zRem(this.key, value);
+  }
+
+  async rescheduleValue(value: string, at: number): Promise<void> {
+    const redis = await getRedis(this.config);
+    await redis.zAdd(this.key, [{ score: at, value }]);
+  }
+
+  async addToQueueValue(value: string): Promise<void> {
+    const redis = await getRedis(this.config);
+    const removed = await redis.zRem(this.key, value);
+    if (removed === 0) {
+      return;
+    }
+    const payload = loadJson(value) as JobPayload;
+    const client = new Client({ config: this.config });
+    await client.push(payload);
+  }
+
+  async retryValue(value: string): Promise<void> {
+    const redis = await getRedis(this.config);
+    const removed = await redis.zRem(this.key, value);
+    if (removed === 0) {
+      return;
+    }
+    const payload = loadJson(value) as JobPayload;
+    if (typeof payload.retry_count === "number") {
+      payload.retry_count -= 1;
+    }
+    const client = new Client({ config: this.config });
+    await client.push(payload);
+  }
+
+  async killValue(value: string): Promise<void> {
+    const redis = await getRedis(this.config);
+    const removed = await redis.zRem(this.key, value);
+    if (removed === 0) {
+      return;
+    }
+    const dead = new DeadSet(this.config);
+    await dead.kill(value);
+  }
+
+  private async popEach(fn: (value: string) => Promise<void>): Promise<void> {
+    const redis = await getRedis(this.config);
+    while (true) {
+      const response = (await redis.sendCommand([
+        "ZPOPMIN",
+        this.key,
+        "1",
+      ])) as string[];
+      if (!response || response.length === 0) {
+        break;
+      }
+      const value = response[0];
+      await fn(value);
+    }
+  }
 }
 
-export class ScheduledSet extends SortedSet {
+export class ScheduledSet extends JobSet {
   constructor(config?: Config) {
     super("schedule", config);
   }
 }
 
-export class RetrySet extends SortedSet {
+export class RetrySet extends JobSet {
   constructor(config?: Config) {
     super("retry", config);
   }
 }
 
-export class DeadSet extends SortedSet {
+export class DeadSet extends JobSet {
   constructor(config?: Config) {
     super("dead", config);
+  }
+
+  async kill(payload: string | JobPayload, options: { trim?: boolean } = {}): Promise<void> {
+    const redis = await getRedis(this.config);
+    const nowSeconds = Date.now() / 1000;
+    const value = typeof payload === "string" ? payload : dumpJson(payload);
+    await redis.zAdd(this.key, [{ score: nowSeconds, value }]);
+    if (options.trim !== false) {
+      await this.trim();
+    }
+  }
+
+  async trim(): Promise<void> {
+    const redis = await getRedis(this.config);
+    const maxJobs = this.config?.deadMaxJobs ?? Sidekiq.defaultConfiguration.deadMaxJobs;
+    const timeout = this.config?.deadTimeoutInSeconds ?? Sidekiq.defaultConfiguration.deadTimeoutInSeconds;
+    const cutoff = Date.now() / 1000 - timeout;
+    const pipeline = redis.multi();
+    pipeline.zRemRangeByScore(this.key, 0, cutoff);
+    pipeline.zRemRangeByRank(this.key, 0, -maxJobs);
+    await pipeline.exec();
   }
 }
 
@@ -309,6 +551,29 @@ export class ProcessSet {
 
   constructor(config?: Config) {
     this.config = config;
+  }
+
+  static async get(identity: string, config?: Config): Promise<ProcessInfoEntry | null> {
+    const redis = await getRedis(config);
+    const pipeline = redis.multi();
+    pipeline.sIsMember("processes", identity);
+    pipeline.hGetAll(identity);
+    const result = await pipeline.exec();
+    const exists = Number(result?.[0] ?? 0);
+    const raw = (result?.[1] ?? {}) as unknown as Record<string, string>;
+    if (exists === 0 || Object.keys(raw).length === 0) {
+      return null;
+    }
+    const info = raw.info ? (loadJson(raw.info) as Record<string, unknown>) : {};
+    return {
+      identity,
+      info,
+      busy: Number(raw.busy ?? 0),
+      beat: Number(raw.beat ?? 0),
+      quiet: raw.quiet === "true",
+      rtt_us: Number(raw.rtt_us ?? 0),
+      rss: Number(raw.rss ?? 0),
+    };
   }
 
   async entries(): Promise<ProcessInfoEntry[]> {
@@ -335,6 +600,24 @@ export class ProcessSet {
         rss: Number(raw.rss ?? 0),
       };
     });
+  }
+
+  async size(): Promise<number> {
+    const redis = await getRedis(this.config);
+    return Number(await redis.sCard("processes"));
+  }
+
+  async totalConcurrency(): Promise<number> {
+    const entries = await this.entries();
+    return entries.reduce(
+      (sum, entry) => sum + Number(entry.info.concurrency ?? 0),
+      0
+    );
+  }
+
+  async totalRss(): Promise<number> {
+    const entries = await this.entries();
+    return entries.reduce((sum, entry) => sum + Number(entry.rss ?? 0), 0);
   }
 
   async cleanup(): Promise<number> {

@@ -8,6 +8,8 @@ export {
   Stats,
   StatsHistory,
   Queue,
+  JobRecord,
+  SortedEntry,
   ScheduledSet,
   RetrySet,
   DeadSet,
