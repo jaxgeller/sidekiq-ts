@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyCliOptions,
   type CliOptions,
+  createShutdownHandler,
   DEFAULT_CONFIG_PATH,
   parseArgs,
   resolveEnvironment,
@@ -164,5 +165,64 @@ describe("CLI helpers", () => {
     const result = applyCliOptions(config, options, []);
     expect(result.requirePaths).toEqual([]);
     expect(config.logger).toBe(logger);
+  });
+});
+
+describe("createShutdownHandler", () => {
+  it("calls stop and exits with 0 on first signal", async () => {
+    const logger: Logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+
+    const shutdown = createShutdownHandler({ logger, stop, exit });
+
+    await shutdown("SIGINT");
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(logger.info).toHaveBeenCalled();
+  });
+
+  it("forces exit with 1 on second signal", async () => {
+    const logger: Logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+
+    const shutdown = createShutdownHandler({ logger, stop, exit });
+
+    await shutdown("SIGINT");
+    await shutdown("SIGINT");
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledTimes(2);
+    expect(exit).toHaveBeenNthCalledWith(1, 0);
+    expect(exit).toHaveBeenNthCalledWith(2, 1);
+  });
+
+  it("tracks shutdown state via isShuttingDown", async () => {
+    const logger: Logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+
+    const shutdown = createShutdownHandler({ logger, stop, exit });
+
+    expect(shutdown.isShuttingDown()).toBe(false);
+    await shutdown("SIGTERM");
+    expect(shutdown.isShuttingDown()).toBe(true);
   });
 });

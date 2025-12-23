@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   applyCliOptions,
+  createShutdownHandler,
   parseArgs,
   resolveEnvironment,
 } from "./cli-helpers.js";
@@ -94,18 +95,13 @@ const main = async () => {
   }
 
   const runner = await Sidekiq.run({ config });
-  let shuttingDown = false;
   let quieting = false;
 
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-    config.logger.info(() => `Received ${signal}, shutting down`);
-    await runner.stop();
-    process.exit(0);
-  };
+  const shutdown = createShutdownHandler({
+    logger: config.logger,
+    stop: () => runner.stop(),
+    exit: (code) => process.exit(code),
+  });
 
   const quiet = async (signal: string) => {
     if (quieting) {

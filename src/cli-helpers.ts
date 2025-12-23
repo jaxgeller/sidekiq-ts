@@ -183,3 +183,34 @@ export const applyCliOptions = (
 
   return { config, requirePaths };
 };
+
+export interface ShutdownDeps {
+  logger: Logger;
+  stop: () => Promise<void>;
+  exit: (code: number) => void;
+}
+
+export interface ShutdownHandler {
+  (signal: string): Promise<void>;
+  isShuttingDown: () => boolean;
+}
+
+export const createShutdownHandler = (deps: ShutdownDeps): ShutdownHandler => {
+  let shuttingDown = false;
+
+  const handler = async (signal: string): Promise<void> => {
+    if (shuttingDown) {
+      deps.logger.info(() => `Received ${signal}, forcing exit`);
+      deps.exit(1);
+      return;
+    }
+    shuttingDown = true;
+    deps.logger.info(() => `Received ${signal}, shutting down`);
+    await deps.stop();
+    deps.exit(0);
+  };
+
+  handler.isShuttingDown = () => shuttingDown;
+
+  return handler;
+};
