@@ -569,4 +569,40 @@ describe("Shutdown Behavior", () => {
     expect(elapsed).toBeLessThan(10_000);
     await config.close();
   }, 15_000);
+
+  it("waits for in-progress jobs to complete on shutdown", async () => {
+    const events: string[] = [];
+
+    class SlowJob extends Job {
+      async perform(): Promise<void> {
+        events.push("started");
+        await sleep(500); // 500ms job
+        events.push("finished");
+      }
+    }
+    Sidekiq.registerJob(SlowJob);
+
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      timeout: 5,
+    });
+
+    const runner = await Sidekiq.run({ config });
+
+    // Enqueue a slow job
+    await SlowJob.performAsync();
+
+    // Wait for job to start
+    await waitFor(() => events.includes("started"));
+
+    // Stop while job is running
+    await runner.stop();
+    await config.close();
+
+    // Job should have completed
+    expect(events).toContain("finished");
+  }, 10_000);
 });

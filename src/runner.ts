@@ -641,7 +641,12 @@ export class Runner {
   }
 
   private async workLoop(index: number): Promise<void> {
-    while (!this.stopping) {
+    while (true) {
+      // Check stopping BEFORE fetching - don't start new work
+      if (this.stopping) {
+        break;
+      }
+
       if (this.quieting) {
         await sleep(50);
         continue;
@@ -652,6 +657,8 @@ export class Runner {
         continue;
       }
 
+      // Process the job - even if stopping became true during fetchWork
+      // Once we've popped a job from Redis, we MUST process it
       const workerId = `worker-${index}`;
       this.inProgress.set(workerId, {
         queue: unit.queue,
