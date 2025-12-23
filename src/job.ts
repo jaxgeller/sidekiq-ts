@@ -27,10 +27,7 @@ export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   performAsync(...args: TArgs): Promise<string | null>;
   performIn(interval: number, ...args: TArgs): Promise<string | null>;
   performAt(timestamp: number, ...args: TArgs): Promise<string | null>;
-  performBulk(
-    args: TArgs[][],
-    options?: BulkOptions
-  ): Promise<(string | null)[]>;
+  performBulk(args: TArgs[], options?: BulkOptions): Promise<(string | null)[]>;
   performInline(...args: TArgs): Promise<boolean | null>;
   jobs(): JobPayload[];
   clear(): void;
@@ -39,6 +36,13 @@ export type JobConstructor<TArgs extends unknown[] = unknown[]> = {
   processJob(payload: JobPayload): Promise<void>;
   clientPush(item: JobPayload): Promise<string | null>;
 };
+
+// Extract TArgs from a Job subclass constructor for type-safe static methods
+// biome-ignore lint/suspicious/noExplicitAny: needed for structural typing
+type JobClass = abstract new () => Job<any>;
+type JobArgsFromClass<T> = T extends { new (): Job<infer TArgs> }
+  ? TArgs
+  : unknown[];
 
 export abstract class Job<TArgs extends unknown[] = unknown[]> {
   jid?: string;
@@ -80,49 +84,67 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
     this.sidekiqRetriesExhausted = handler;
   }
 
-  static set<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
+  static set<TClass extends JobClass>(
+    this: TClass,
     options: JobSetterOptions
-  ): JobSetter<TArgs> {
-    return new JobSetter(this, options);
+  ): JobSetter<JobArgsFromClass<TClass>> {
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      options
+    );
   }
 
-  static performAsync<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
-    ...args: TArgs
+  static performAsync<TClass extends JobClass>(
+    this: TClass,
+    ...args: JobArgsFromClass<TClass>
   ): Promise<string | null> {
-    return new JobSetter(this, {}).performAsync(...args);
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      {}
+    ).performAsync(...args);
   }
 
-  static performIn<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
+  static performIn<TClass extends JobClass>(
+    this: TClass,
     interval: number,
-    ...args: TArgs
+    ...args: JobArgsFromClass<TClass>
   ): Promise<string | null> {
-    return new JobSetter(this, {}).performIn(interval, ...args);
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      {}
+    ).performIn(interval, ...args);
   }
 
-  static performAt<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
+  static performAt<TClass extends JobClass>(
+    this: TClass,
     timestamp: number,
-    ...args: TArgs
+    ...args: JobArgsFromClass<TClass>
   ): Promise<string | null> {
-    return new JobSetter(this, {}).performAt(timestamp, ...args);
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      {}
+    ).performAt(timestamp, ...args);
   }
 
-  static performBulk<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
-    args: TArgs[][],
+  static performBulk<TClass extends JobClass>(
+    this: TClass,
+    args: JobArgsFromClass<TClass>[],
     options?: BulkOptions
   ): Promise<(string | null)[]> {
-    return new JobSetter(this, {}).performBulk(args, options);
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      {}
+    ).performBulk(args, options);
   }
 
-  static performInline<TArgs extends unknown[]>(
-    this: JobConstructor<TArgs>,
-    ...args: TArgs
+  static performInline<TClass extends JobClass>(
+    this: TClass,
+    ...args: JobArgsFromClass<TClass>
   ): Promise<boolean | null> {
-    return new JobSetter(this, {}).performInline(...args);
+    return new JobSetter(
+      this as unknown as JobConstructor<JobArgsFromClass<TClass>>,
+      {}
+    ).performInline(...args);
   }
 
   static jobs(this: JobConstructor | typeof Job): JobPayload[] {
@@ -285,7 +307,7 @@ export class JobSetter<TArgs extends unknown[] = unknown[]> {
   }
 
   performBulk(
-    args: TArgs[][],
+    args: TArgs[],
     options?: BulkOptions
   ): Promise<(string | null)[]> {
     const payload: JobPayload = {

@@ -1,5 +1,6 @@
 export type RegisteredJobClass = new () => {
-  perform: (...args: unknown[]) => Promise<void> | void;
+  // biome-ignore lint/suspicious/noExplicitAny: allows typed job args via contravariance
+  perform: (...args: any[]) => Promise<void> | void;
   jid?: string;
   _context?: { stopping: () => boolean };
 };
