@@ -18,6 +18,7 @@ import type { JobPayload } from "./types.js";
 const FETCH_TIMEOUT_SECONDS = 2;
 const STATS_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
 const INITIAL_WAIT_SECONDS = 10;
+const PAUSE_TIME_MS = 500;
 
 const LUA_ZPOPBYSCORE = `
 local key, now = KEYS[1], ARGV[1]
@@ -208,7 +209,29 @@ export class Runner {
 
     this.stopHeartbeat();
     this.stopScheduler();
+
+    // Brief pause to allow idle processors to finish
+    await sleep(PAUSE_TIME_MS);
+
     const deadline = Date.now() + this.config.timeout * 1000;
+
+    // Early exit if no jobs are running
+    if (this.inProgress.size === 0) {
+      await this.waitForWorkers(deadline);
+      await this.clearHeartbeat();
+      await Promise.all(
+        this.workerRedis.map(async (client) => {
+          if (client.isOpen) {
+            await client.quit();
+          }
+        })
+      );
+      await this.config.fireEvent("exit", { reverse: true });
+      return;
+    }
+
+    this.config.logger.info(() => "Pausing to allow jobs to finish...");
+
     await this.waitForDrain(deadline);
     if (this.inProgress.size > 0) {
       await this.requeueInProgress();

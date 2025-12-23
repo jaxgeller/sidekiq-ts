@@ -55,7 +55,7 @@ describe("Runner", () => {
     } finally {
       await runner.stop();
     }
-  });
+  }, 10_000);
 });
 
 describe("Lifecycle Events", () => {
@@ -83,7 +83,7 @@ describe("Lifecycle Events", () => {
       await runner.stop();
       await config.close();
     }
-  });
+  }, 10_000);
 
   it("fires quiet event when quiet() is called", async () => {
     const events: string[] = [];
@@ -107,7 +107,7 @@ describe("Lifecycle Events", () => {
     expect(events).toContain("quiet");
     await runner.stop();
     await config.close();
-  });
+  }, 10_000);
 
   it("fires shutdown and exit events on stop()", async () => {
     const events: string[] = [];
@@ -158,7 +158,7 @@ describe("Lifecycle Events", () => {
     await config.close();
 
     expect(events).toEqual(["startup", "quiet", "shutdown", "exit"]);
-  });
+  }, 10_000);
 
   it("does not fire quiet twice if already quiet", async () => {
     const events: string[] = [];
@@ -183,7 +183,7 @@ describe("Lifecycle Events", () => {
     await config.close();
 
     expect(events).toEqual(["startup", "quiet", "shutdown", "exit"]);
-  });
+  }, 10_000);
 
   it("fires heartbeat events on each heartbeat cycle", async () => {
     let heartbeatCount = 0;
@@ -211,7 +211,7 @@ describe("Lifecycle Events", () => {
       await runner.stop();
       await config.close();
     }
-  });
+  }, 15_000);
 });
 
 describe("Config.fireEvent", () => {
@@ -421,7 +421,7 @@ describe("Process Signaling", () => {
 
     await runner.stop();
     await config.close();
-  });
+  }, 15_000);
 
   it("dumps worker state via remote signal", async () => {
     const logs: string[] = [];
@@ -463,7 +463,7 @@ describe("Process Signaling", () => {
 
     await runner.stop();
     await config.close();
-  });
+  }, 10_000);
 });
 
 describe("Process API", () => {
@@ -546,4 +546,27 @@ describe("Process API", () => {
     );
     await config.close();
   });
+});
+
+describe("Shutdown Behavior", () => {
+  it("exits quickly when no jobs are running", async () => {
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      timeout: 25, // Long timeout to prove we don't wait
+    });
+
+    const runner = await Sidekiq.run({ config });
+
+    const start = Date.now();
+    await runner.stop();
+    const elapsed = Date.now() - start;
+
+    // Should exit in ~500ms PAUSE_TIME + ~2s BRPOP timeout + overhead
+    // Key assertion: we don't wait the full 25s timeout
+    expect(elapsed).toBeLessThan(10_000);
+    await config.close();
+  }, 15_000);
 });

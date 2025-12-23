@@ -62,7 +62,7 @@ describe("Shutdown requeue", () => {
     } finally {
       release?.();
     }
-  });
+  }, 10_000);
 
   it("captures in-progress jobs in snapshot", async () => {
     const runner = await Sidekiq.run();
@@ -79,5 +79,5 @@ describe("Shutdown requeue", () => {
       release?.();
       await runner.stop();
     }
-  });
+  }, 10_000);
 });

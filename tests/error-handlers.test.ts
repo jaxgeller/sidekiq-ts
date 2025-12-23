@@ -117,7 +117,7 @@ describe("Error handlers", () => {
     } finally {
       await runner.stop();
     }
-  });
+  }, 10_000);
 
   it("logs errors with the default handler", async () => {
     const messages: string[] = [];

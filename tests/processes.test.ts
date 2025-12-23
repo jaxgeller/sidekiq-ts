@@ -64,7 +64,7 @@ describe("Process/worker tracking", () => {
     } finally {
       await runner.stop();
     }
-  });
+  }, 10_000);
 
   it("cleans up stale process entries", async () => {
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();

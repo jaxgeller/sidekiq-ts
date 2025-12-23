@@ -114,5 +114,5 @@ describe("Middleware", () => {
     } finally {
       await runner.stop();
     }
-  });
+  }, 10_000);
 });
