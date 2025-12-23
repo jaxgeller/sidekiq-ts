@@ -272,7 +272,7 @@ process.on("SIGTERM", async () => {
 ### CLI
 
 ```bash
-sidekiq-ts [options]
+npx sidekiq [options]
 ```
 
 **Options:**
@@ -294,13 +294,13 @@ sidekiq-ts [options]
 
 ```bash
 # Basic usage
-sidekiq-ts -r ./dist/jobs.js
+npx sidekiq -r ./dist/jobs.js
 
 # Multiple queues with weights
-sidekiq-ts -q critical,5 -q default,2 -q background -c 10
+npx sidekiq -q critical,5 -q default,2 -q background -c 10
 
 # With config file
-sidekiq-ts -C config/sidekiq.json -e production
+npx sidekiq -C config/sidekiq.json -e production
 ```
 
 ## Configuration File
@@ -640,7 +640,7 @@ After=network.target redis.service
 Type=simple
 User=app
 WorkingDirectory=/app
-ExecStart=/usr/bin/node /app/node_modules/.bin/sidekiq-ts -C /app/sidekiq.json
+ExecStart=/usr/bin/npx sidekiq -C /app/sidekiq.json
 Restart=always
 RestartSec=5
 
@@ -655,12 +655,30 @@ WantedBy=multi-user.target
 module.exports = {
   apps: [{
     name: "sidekiq-worker",
-    script: "node_modules/.bin/sidekiq-ts",
-    args: "-C sidekiq.json",
+    script: "npx",
+    args: "sidekiq -C sidekiq.json",
     instances: 2,
     exec_mode: "cluster",
   }]
 };
+```
+
+**Docker example:**
+
+```dockerfile
+FROM node:24-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY dist ./dist
+COPY sidekiq.json ./
+CMD ["npx", "sidekiq", "-C", "sidekiq.json"]
+```
+
+```bash
+# Build and run
+docker build -t my-worker .
+docker run -e REDIS_URL=redis://host:6379 my-worker
 ```
 
 ### Redis Configuration
