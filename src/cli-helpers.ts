@@ -197,14 +197,22 @@ export interface ShutdownHandler {
 
 export const createShutdownHandler = (deps: ShutdownDeps): ShutdownHandler => {
   let shuttingDown = false;
+  let shutdownStartedAt = 0;
 
   const handler = async (signal: string): Promise<void> => {
     if (shuttingDown) {
+      // Only force exit if more than 500ms has passed since first signal.
+      // This prevents duplicate signals from a single Ctrl+C from force-exiting.
+      const elapsed = Date.now() - shutdownStartedAt;
+      if (elapsed < 500) {
+        return;
+      }
       deps.logger.info(() => `Received ${signal}, forcing exit`);
       deps.exit(1);
       return;
     }
     shuttingDown = true;
+    shutdownStartedAt = Date.now();
     deps.logger.info(() => `Received ${signal}, shutting down`);
     await deps.stop();
     deps.exit(0);

@@ -188,7 +188,8 @@ describe("createShutdownHandler", () => {
     expect(logger.info).toHaveBeenCalled();
   });
 
-  it("forces exit with 1 on second signal", async () => {
+  it("forces exit with 1 on second signal after debounce period", async () => {
+    vi.useFakeTimers();
     const logger: Logger = {
       debug: vi.fn(),
       info: vi.fn(),
@@ -201,12 +202,35 @@ describe("createShutdownHandler", () => {
     const shutdown = createShutdownHandler({ logger, stop, exit });
 
     await shutdown("SIGINT");
+    // Advance time past the 500ms debounce period
+    vi.advanceTimersByTime(600);
     await shutdown("SIGINT");
 
     expect(stop).toHaveBeenCalledOnce();
     expect(exit).toHaveBeenCalledTimes(2);
     expect(exit).toHaveBeenNthCalledWith(1, 0);
     expect(exit).toHaveBeenNthCalledWith(2, 1);
+    vi.useRealTimers();
+  });
+
+  it("ignores duplicate signals within debounce period", async () => {
+    const logger: Logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+
+    const shutdown = createShutdownHandler({ logger, stop, exit });
+
+    await shutdown("SIGINT");
+    await shutdown("SIGINT"); // Should be ignored (within 500ms debounce)
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
   });
 
   it("tracks shutdown state via isShuttingDown", async () => {
