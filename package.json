@@ -1,6 +1,6 @@
 {
   "name": "sidekiq-ts",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "TypeScript client for Sidekiq job processing",
   "license": "MIT",
   "keywords": [

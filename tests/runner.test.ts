@@ -606,3 +606,79 @@ describe("Shutdown Behavior", () => {
     expect(events).toContain("finished");
   }, 10_000);
 });
+
+describe("Invalid Job Handling", () => {
+  it("handles invalid JSON in job payloads by sending to dead set", async () => {
+    const { DeadSet } = await import("../src/api.js");
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+    });
+
+    const redis = await config.getRedisClient();
+    const deadSet = new DeadSet(config);
+
+    // Clear dead set
+    await deadSet.clear();
+    expect(await deadSet.size()).toBe(0);
+
+    // Push invalid JSON directly to queue (truncated JSON)
+    const validPayload = JSON.stringify({
+      class: "SomeJob",
+      args: ["test"],
+      jid: "abc123",
+    });
+    const invalidPayload = validPayload.slice(0, -5); // Truncate last 5 chars
+
+    await redis.lPush("queue:default", invalidPayload);
+
+    const runner = await Sidekiq.run({ config });
+
+    // Wait for the job to be processed and sent to dead set
+    await waitFor(async () => (await deadSet.size()) === 1, 5000);
+
+    await runner.stop();
+
+    // Invalid job should be in dead set
+    expect(await deadSet.size()).toBe(1);
+
+    await config.close();
+  }, 15_000);
+
+  it("increments failed stat for invalid JSON", async () => {
+    const { Stats } = await import("../src/api.js");
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+    });
+
+    const redis = await config.getRedisClient();
+    const stats = new Stats(config);
+
+    // Reset failed stat
+    await stats.reset("failed");
+    const initialFailed = await stats.failed();
+
+    // Push invalid JSON
+    await redis.lPush("queue:default", "not valid json at all");
+
+    const runner = await Sidekiq.run({ config });
+
+    // Wait for processing
+    await waitFor(async () => {
+      const currentFailed = await stats.failed();
+      return currentFailed > initialFailed;
+    }, 5000);
+
+    await runner.stop();
+
+    const finalFailed = await stats.failed();
+    expect(finalFailed).toBeGreaterThan(initialFailed);
+
+    await config.close();
+  }, 15_000);
+});

@@ -189,4 +189,143 @@ describe("Iterable jobs", () => {
     expect(ArrayIterableJob.onCancelCalled).toBe(1);
     expect(ArrayIterableJob.onCompleteCalled).toBe(1);
   });
+
+  it("calls lifecycle hooks in correct order", async () => {
+    // First run - should call onStart and onStop
+    ArrayIterableJob.stopAfter = 2;
+    const jid = await runIterable(ArrayIterableJob);
+
+    expect(ArrayIterableJob.onStartCalled).toBe(1);
+    expect(ArrayIterableJob.onResumeCalled).toBe(0);
+    expect(ArrayIterableJob.onStopCalled).toBe(1);
+    expect(ArrayIterableJob.onCompleteCalled).toBe(0);
+
+    // Resume - should call onResume and onStop
+    ArrayIterableJob.stopAfter = 2;
+    await runIterable(ArrayIterableJob, jid);
+
+    expect(ArrayIterableJob.onStartCalled).toBe(1);
+    expect(ArrayIterableJob.onResumeCalled).toBe(1);
+    expect(ArrayIterableJob.onStopCalled).toBe(2);
+    expect(ArrayIterableJob.onCompleteCalled).toBe(0);
+
+    // Complete - should call onResume, onStop, and onComplete
+    ArrayIterableJob.stopAfter = null;
+    await runIterable(ArrayIterableJob, jid);
+
+    expect(ArrayIterableJob.onStartCalled).toBe(1);
+    expect(ArrayIterableJob.onResumeCalled).toBe(2);
+    expect(ArrayIterableJob.onStopCalled).toBe(3);
+    expect(ArrayIterableJob.onCompleteCalled).toBe(1);
+  });
+
+  it("flushes state and allows resume after error during iteration", async () => {
+    class FailingIterableJob extends IterableJob<[], number, number> {
+      static iterated: number[] = [];
+      static failOnValue: number | null = null;
+
+      buildEnumerator({ cursor }: { cursor: number | null }) {
+        return this.arrayEnumerator([1, 2, 3, 4, 5], cursor);
+      }
+
+      eachIteration(value: number): void {
+        FailingIterableJob.iterated.push(value);
+        if (value === FailingIterableJob.failOnValue) {
+          throw new Error("Intentional failure");
+        }
+      }
+    }
+
+    FailingIterableJob.iterated = [];
+    FailingIterableJob.failOnValue = 3;
+
+    const job = new FailingIterableJob();
+    job.jid = generateJid();
+
+    // First run fails on value 3
+    await expect(job.perform()).rejects.toThrow("Intentional failure");
+    expect(FailingIterableJob.iterated).toEqual([1, 2, 3]);
+
+    // State should be persisted (cursor is the index of the failed item)
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const state = await redis.hGetAll(`it-${job.jid}`);
+    expect(Number(state.ex)).toBe(1);
+    expect(JSON.parse(state.c)).toBe(2); // cursor is index of failed item (value 3)
+
+    // Resume after fixing the issue - retries from the failed item
+    FailingIterableJob.failOnValue = null;
+    const resumeJob = new FailingIterableJob();
+    resumeJob.jid = job.jid;
+    await resumeJob.perform();
+
+    // Note: sidekiq-ts retries from the failed item (index 2 = value 3),
+    // so value 3 appears twice in the total iteration
+    expect(FailingIterableJob.iterated).toEqual([1, 2, 3, 3, 4, 5]);
+  });
+
+  it("respects maxIterationRuntime limit", async () => {
+    class SlowIterableJob extends IterableJob<[], number, number> {
+      static iterated: number[] = [];
+
+      buildEnumerator({ cursor }: { cursor: number | null }) {
+        return this.arrayEnumerator([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], cursor);
+      }
+
+      async eachIteration(value: number): Promise<void> {
+        SlowIterableJob.iterated.push(value);
+        // Sleep for 20ms each iteration
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    SlowIterableJob.iterated = [];
+    Sidekiq.defaultConfiguration.maxIterationRuntime = 0.05; // 50ms limit
+
+    const job = new SlowIterableJob();
+    job.jid = generateJid();
+
+    // Should be interrupted before completing all iterations
+    try {
+      await job.perform();
+    } catch (error) {
+      if (!(error instanceof IterableInterrupted)) {
+        throw error;
+      }
+    }
+
+    // Should have processed some but not all items
+    expect(SlowIterableJob.iterated.length).toBeGreaterThan(0);
+    expect(SlowIterableJob.iterated.length).toBeLessThan(10);
+  });
+
+  it("handles empty enumerator gracefully", async () => {
+    class EmptyIterableJob extends IterableJob<[], never, number> {
+      static onCompleteCalled = 0;
+
+      buildEnumerator({ cursor }: { cursor: number | null }) {
+        return this.arrayEnumerator([], cursor);
+      }
+
+      eachIteration(_value: never): void {
+        throw new Error("Should not be called");
+      }
+
+      onComplete(): void {
+        EmptyIterableJob.onCompleteCalled += 1;
+      }
+    }
+
+    EmptyIterableJob.onCompleteCalled = 0;
+
+    const job = new EmptyIterableJob();
+    job.jid = generateJid();
+    await job.perform();
+
+    // onComplete should still be called even with empty enumerator
+    expect(EmptyIterableJob.onCompleteCalled).toBe(1);
+
+    // No state should be persisted
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    expect(await redis.exists(`it-${job.jid}`)).toBe(0);
+  });
 });
