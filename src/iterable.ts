@@ -62,7 +62,7 @@ export class IterableJob<
     const pipeline = redis.multi();
     pipeline.hSetNX(key, "cancelled", String(now));
     pipeline.hGet(key, "cancelled");
-    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
+    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS);
     const result = await pipeline.exec();
     const cancelled =
       (result?.[1] as unknown as string | null | undefined) ?? null;
@@ -345,7 +345,7 @@ export class IterableJob<
     };
     const pipeline = redis.multi();
     pipeline.hSet(key, state);
-    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
+    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS);
     pipeline.hGet(key, "cancelled");
     const result = await pipeline.exec();
     const cancelled =

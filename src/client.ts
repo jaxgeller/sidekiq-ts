@@ -15,6 +15,9 @@ import type { BulkPayload, JobClassLike, JobPayload } from "./types.js";
 
 const redisContext = new AsyncLocalStorage<RedisClient>();
 
+// Local queue for reliable push - holds jobs when Redis is unavailable
+const localQueue: JobPayload[] = [];
+
 export class Client {
   private readonly config: Config;
   private readonly redisClient?: RedisClient;
@@ -47,21 +50,29 @@ export class Client {
   async push(item: JobPayload): Promise<string | null> {
     const normalized = normalizeItem(item, Sidekiq.defaultJobOptions());
     const queue = normalized.queue ?? "default";
-    const redis = await this.getRedis();
-    const result = await this.config.clientMiddleware.invoke(
-      item.class,
-      normalized,
-      queue,
-      redis,
-      async () => normalized
-    );
-    if (!result) {
-      return null;
+
+    try {
+      const redis = await this.getRedis();
+      const result = await this.config.clientMiddleware.invoke(
+        item.class,
+        normalized,
+        queue,
+        redis,
+        async () => normalized
+      );
+      if (!result) {
+        return null;
+      }
+      const payload = result as JobPayload;
+      verifyJson(payload.args, this.config.strictArgs);
+      await this.rawPush([payload]);
+      return payload.jid ?? null;
+    } catch (error) {
+      // Redis unavailable - queue locally (skipping middleware)
+      verifyJson(normalized.args, this.config.strictArgs);
+      this.queueLocally([normalized], error);
+      return normalized.jid ?? null;
     }
-    const payload = result as JobPayload;
-    verifyJson(payload.args, this.config.strictArgs);
-    await this.rawPush([payload]);
-    return payload.jid ?? null;
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: bulk push validation is inherently complex
@@ -121,51 +132,75 @@ export class Client {
     const normalized = normalizeItem(base, Sidekiq.defaultJobOptions());
 
     const results: Array<string | null> = [];
-    const redis = await this.getRedis();
-    for (let i = 0; i < args.length; i += batchSize) {
-      const slice = args.slice(i, i + batchSize);
-      if (slice.length === 0) {
-        break;
-      }
-      if (!slice.every((entry) => Array.isArray(entry))) {
-        throw new Error(
-          "Bulk arguments must be an Array of Arrays: [[1], [2]]"
-        );
-      }
 
-      const payloads = await Promise.all(
-        slice.map(async (jobArgs, index) => {
-          const payload: JobPayload = {
-            ...normalized,
-            args: jobArgs,
-            jid: generateJid(),
-          };
-          if (resolvedAt !== undefined) {
-            payload.at = Array.isArray(resolvedAt)
-              ? resolvedAt[i + index]
-              : resolvedAt;
-          }
-          const result = await this.config.clientMiddleware.invoke(
-            items.class,
-            payload,
-            payload.queue ?? "default",
-            redis,
-            async () => payload
+    try {
+      const redis = await this.getRedis();
+      for (let i = 0; i < args.length; i += batchSize) {
+        const slice = args.slice(i, i + batchSize);
+        if (slice.length === 0) {
+          break;
+        }
+        if (!slice.every((entry) => Array.isArray(entry))) {
+          throw new Error(
+            "Bulk arguments must be an Array of Arrays: [[1], [2]]"
           );
-          if (!result) {
-            return null;
-          }
-          const finalPayload = result as JobPayload;
-          verifyJson(finalPayload.args, this.config.strictArgs);
-          return finalPayload;
-        })
-      );
+        }
 
-      const toPush = payloads.filter((payload): payload is JobPayload =>
-        Boolean(payload)
-      );
-      await this.rawPush(toPush);
-      results.push(...payloads.map((payload) => payload?.jid ?? null));
+        const payloads = await Promise.all(
+          slice.map(async (jobArgs, index) => {
+            const payload: JobPayload = {
+              ...normalized,
+              args: jobArgs,
+              jid: generateJid(),
+            };
+            if (resolvedAt !== undefined) {
+              payload.at = Array.isArray(resolvedAt)
+                ? resolvedAt[i + index]
+                : resolvedAt;
+            }
+            const result = await this.config.clientMiddleware.invoke(
+              items.class,
+              payload,
+              payload.queue ?? "default",
+              redis,
+              async () => payload
+            );
+            if (!result) {
+              return null;
+            }
+            const finalPayload = result as JobPayload;
+            verifyJson(finalPayload.args, this.config.strictArgs);
+            return finalPayload;
+          })
+        );
+
+        const toPush = payloads.filter((payload): payload is JobPayload =>
+          Boolean(payload)
+        );
+        await this.rawPush(toPush);
+        results.push(...payloads.map((payload) => payload?.jid ?? null));
+      }
+    } catch (error) {
+      // Redis unavailable - build payloads without middleware and queue locally
+      for (let i = results.length; i < args.length; i++) {
+        const jobArgs = args[i];
+        if (!Array.isArray(jobArgs)) {
+          throw new Error(
+            "Bulk arguments must be an Array of Arrays: [[1], [2]]"
+          );
+        }
+        const payload: JobPayload = {
+          ...normalized,
+          args: jobArgs,
+          jid: generateJid(),
+        };
+        if (resolvedAt !== undefined) {
+          payload.at = Array.isArray(resolvedAt) ? resolvedAt[i] : resolvedAt;
+        }
+        verifyJson(payload.args, this.config.strictArgs);
+        this.queueLocally([payload], error);
+        results.push(payload.jid ?? null);
+      }
     }
 
     return results;
@@ -178,7 +213,7 @@ export class Client {
     const pipeline = redis.multi();
     pipeline.hSetNX(key, "cancelled", now);
     pipeline.hGet(key, "cancelled");
-    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS, "NX");
+    pipeline.expire(key, ITERATION_STATE_TTL_SECONDS);
     const result = await pipeline.exec();
     const cancelled = result?.[1] as unknown as string | null | undefined;
     return Boolean(Number(cancelled));
@@ -239,7 +274,21 @@ export class Client {
     return redisContext.run(redis, fn);
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: push logic requires handling multiple cases
+  /**
+   * Returns the number of jobs currently in the local queue.
+   * Jobs are queued locally when Redis is unavailable.
+   */
+  static localQueueSize(): number {
+    return localQueue.length;
+  }
+
+  /**
+   * Clears the local queue. Primarily for testing.
+   */
+  static clearLocalQueue(): void {
+    localQueue.length = 0;
+  }
+
   private async rawPush(payloads: JobPayload[]): Promise<void> {
     if (payloads.length === 0) {
       return;
@@ -257,7 +306,25 @@ export class Client {
       }
       return;
     }
-    const redis = await this.getRedis();
+
+    try {
+      const redis = await this.getRedis();
+
+      // Drain any locally queued jobs first
+      await this.drainLocalQueue(redis);
+
+      // Push the current batch
+      await this.pushToRedis(redis, payloads);
+    } catch (error) {
+      // Queue locally on Redis failure (silent success)
+      this.queueLocally(payloads, error);
+    }
+  }
+
+  private async pushToRedis(
+    redis: RedisClient,
+    payloads: JobPayload[]
+  ): Promise<void> {
     const pipeline = redis.multi();
 
     if (payloads[0].at !== undefined) {
@@ -291,5 +358,70 @@ export class Client {
     }
 
     await pipeline.exec();
+  }
+
+  private async drainLocalQueue(redis: RedisClient): Promise<void> {
+    if (localQueue.length === 0) {
+      return;
+    }
+
+    const drainCount = localQueue.length;
+    this.config.logger.info(
+      () => `Draining ${drainCount} locally queued jobs to Redis`
+    );
+
+    // Process in batches to avoid huge pipelines
+    while (localQueue.length > 0) {
+      const batch = localQueue.splice(0, 100);
+      try {
+        // Separate scheduled and immediate jobs
+        const scheduled = batch.filter((p) => p.at !== undefined);
+        const immediate = batch.filter((p) => p.at === undefined);
+
+        if (scheduled.length > 0) {
+          await this.pushToRedis(redis, scheduled);
+        }
+        if (immediate.length > 0) {
+          await this.pushToRedis(redis, immediate);
+        }
+      } catch {
+        // Put back and abort drain - Redis still unavailable
+        localQueue.unshift(...batch);
+        throw new Error("Failed to drain local queue");
+      }
+    }
+  }
+
+  private queueLocally(payloads: JobPayload[], error: unknown): void {
+    const maxQueue = this.config.reliableClientMaxQueue;
+    if (maxQueue === 0) {
+      // Reliability disabled - re-throw
+      throw error;
+    }
+
+    const available = maxQueue - localQueue.length;
+    if (available <= 0) {
+      this.config.logger.warn(
+        () =>
+          `Local queue full (${maxQueue} jobs), dropping ${payloads.length} jobs`
+      );
+      return;
+    }
+
+    const toQueue = payloads.slice(0, available);
+    localQueue.push(...toQueue);
+
+    const dropped = payloads.length - toQueue.length;
+    if (dropped > 0) {
+      this.config.logger.warn(
+        () =>
+          `Queued ${toQueue.length} jobs locally, dropped ${dropped} (queue full at ${maxQueue})`
+      );
+    } else {
+      this.config.logger.warn(
+        () =>
+          `Redis unavailable, queued ${toQueue.length} jobs locally (${localQueue.length}/${maxQueue})`
+      );
+    }
   }
 }

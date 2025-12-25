@@ -73,6 +73,8 @@ export interface ConfigOptions {
   redisIdleTimeout?: number | null;
   /** Leader election configuration */
   leaderElection?: LeaderElectionConfig;
+  /** Maximum jobs to hold locally when Redis is unavailable (default: 1000, 0 to disable) */
+  reliableClientMaxQueue?: number;
 }
 
 export type JobRetryOption = boolean | number;

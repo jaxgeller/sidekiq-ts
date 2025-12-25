@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "../src/client.js";
+import { Config } from "../src/config.js";
 import { Job } from "../src/job.js";
 import { Sidekiq } from "../src/sidekiq.js";
 
@@ -88,5 +89,133 @@ describe("Client", () => {
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();
     const entries = await redis.lRange("queue:critical", 0, -1);
     expect(entries).toHaveLength(2);
+  });
+});
+
+describe("Reliable Client", () => {
+  // Redis options that fail fast (no retries)
+  const badRedisOptions = {
+    url: "redis://localhost:9999",
+    socket: {
+      connectTimeout: 100,
+      reconnectStrategy: false as const,
+    },
+  };
+
+  beforeEach(() => {
+    Client.clearLocalQueue();
+  });
+
+  it("queues jobs locally when Redis is unavailable", async () => {
+    const badConfig = new Config({
+      redis: badRedisOptions,
+      reliableClientMaxQueue: 100,
+    });
+
+    const client = new Client({ config: badConfig });
+    const jid = await client.push({
+      class: "TestJob",
+      args: [1, 2],
+      queue: "default",
+    });
+
+    // Push should succeed (return JID) even though Redis is down
+    expect(jid).toHaveLength(24);
+    expect(Client.localQueueSize()).toBe(1);
+
+    await badConfig.close();
+  });
+
+  it("drains local queue on successful push", async () => {
+    const badConfig = new Config({
+      redis: badRedisOptions,
+      reliableClientMaxQueue: 100,
+    });
+
+    const badClient = new Client({ config: badConfig });
+    await badClient.push({ class: "TestJob", args: [1], queue: "drain_test" });
+    await badClient.push({ class: "TestJob", args: [2], queue: "drain_test" });
+    expect(Client.localQueueSize()).toBe(2);
+    await badConfig.close();
+
+    // Now push with a good connection - should drain the local queue
+    const goodClient = new Client();
+    await goodClient.push({ class: "TestJob", args: [3], queue: "drain_test" });
+
+    expect(Client.localQueueSize()).toBe(0);
+
+    // All 3 jobs should be in Redis
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const entries = await redis.lRange("queue:drain_test", 0, -1);
+    expect(entries).toHaveLength(3);
+  });
+
+  it("respects max queue size", async () => {
+    const badConfig = new Config({
+      redis: badRedisOptions,
+      reliableClientMaxQueue: 3,
+    });
+
+    const client = new Client({ config: badConfig });
+
+    // Push 5 jobs, only 3 should be queued
+    for (let i = 0; i < 5; i++) {
+      await client.push({ class: "TestJob", args: [i], queue: "default" });
+    }
+
+    expect(Client.localQueueSize()).toBe(3);
+    await badConfig.close();
+  });
+
+  it("throws when reliability is disabled", async () => {
+    const badConfig = new Config({
+      redis: badRedisOptions,
+      reliableClientMaxQueue: 0,
+    });
+
+    const client = new Client({ config: badConfig });
+
+    await expect(
+      client.push({ class: "TestJob", args: [1], queue: "default" })
+    ).rejects.toThrow();
+
+    expect(Client.localQueueSize()).toBe(0);
+    await badConfig.close();
+  });
+
+  it("handles scheduled jobs in local queue", async () => {
+    const badConfig = new Config({
+      redis: badRedisOptions,
+      reliableClientMaxQueue: 100,
+    });
+
+    const client = new Client({ config: badConfig });
+    const futureTime = Date.now() / 1000 + 3600;
+    await client.push({
+      class: "TestJob",
+      args: [1],
+      queue: "default",
+      at: futureTime,
+    });
+
+    expect(Client.localQueueSize()).toBe(1);
+    await badConfig.close();
+
+    // Drain with good connection
+    const goodClient = new Client();
+    await goodClient.push({ class: "TestJob", args: [2], queue: "default" });
+
+    expect(Client.localQueueSize()).toBe(0);
+
+    // Check schedule set has the job
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const scheduled = await redis.zRange("schedule", 0, -1);
+    expect(scheduled.length).toBeGreaterThanOrEqual(1);
+
+    const found = scheduled.some((entry) => {
+      const payload = JSON.parse(entry);
+      return payload.class === "TestJob" && payload.args[0] === 1;
+    });
+    expect(found).toBe(true);
   });
 });

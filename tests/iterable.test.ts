@@ -328,4 +328,47 @@ describe("Iterable jobs", () => {
     const redis = await Sidekiq.defaultConfiguration.getRedisClient();
     expect(await redis.exists(`it-${job.jid}`)).toBe(0);
   });
+
+  it("sets TTL on iteration state keys", async () => {
+    // This test verifies the fix for the TTL race condition.
+    // Previously, expire was called with "NX" flag which could fail
+    // to set TTL if the key was just created by hSetNX.
+    ArrayIterableJob.stopAfter = 2;
+    const jid = await runIterable(ArrayIterableJob);
+
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const key = `it-${jid}`;
+
+    // Key should exist with state
+    expect(await redis.exists(key)).toBe(1);
+
+    // Key should have a TTL set (not -1 which means no expiry)
+    const ttl = await redis.ttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    // TTL should be approximately 30 days (2592000 seconds)
+    expect(ttl).toBeLessThanOrEqual(30 * 24 * 60 * 60);
+    expect(ttl).toBeGreaterThan(30 * 24 * 60 * 60 - 60); // Within 60 seconds of 30 days
+  });
+
+  it("sets TTL on cancelled iteration state", async () => {
+    ArrayIterableJob.stopAfter = 2;
+    const jid = await runIterable(ArrayIterableJob);
+
+    // Cancel the job
+    const job = new ArrayIterableJob();
+    job.jid = jid;
+    await job.cancel();
+
+    const redis = await Sidekiq.defaultConfiguration.getRedisClient();
+    const key = `it-${jid}`;
+
+    // Key should exist with cancelled field
+    const cancelled = await redis.hGet(key, "cancelled");
+    expect(cancelled).toBeTruthy();
+
+    // Key should have a TTL set
+    const ttl = await redis.ttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(30 * 24 * 60 * 60);
+  });
 });

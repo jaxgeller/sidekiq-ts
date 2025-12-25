@@ -58,6 +58,7 @@ export class Config {
   >;
   serverMiddleware: MiddlewareChain<[unknown, JobPayload, string], unknown>;
   leaderElection: LeaderElectionConfig;
+  reliableClientMaxQueue: number;
   private redisClient?: RedisClient;
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: config initialization requires many defaults
@@ -97,6 +98,7 @@ export class Config {
     this.clientMiddleware = new MiddlewareChain(this);
     this.serverMiddleware = new MiddlewareChain(this);
     this.leaderElection = options.leaderElection ?? {};
+    this.reliableClientMaxQueue = options.reliableClientMaxQueue ?? 1000;
 
     if (this.errorHandlers.length === 0) {
       this.errorHandlers.push((error, context) => {
