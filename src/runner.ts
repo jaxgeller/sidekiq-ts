@@ -1,6 +1,5 @@
 import { hostname } from "node:os";
 import { compressBacktrace, extractBacktrace } from "./backtrace.js";
-import { Client } from "./client.js";
 import type { Config } from "./config.js";
 import { ensureInterruptHandler } from "./interrupt-handler.js";
 import { JobSkipError } from "./iterable-errors.js";
@@ -20,11 +19,19 @@ const STATS_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
 const INITIAL_WAIT_SECONDS = 10;
 const PAUSE_TIME_MS = 500;
 
-const LUA_ZPOPBYSCORE = `
-local key, now = KEYS[1], ARGV[1]
-local jobs = redis.call("zrange", key, "-inf", now, "byscore", "limit", 0, 1)
+// Reliable scheduler: atomically pop from sorted set AND enqueue to queue
+// This eliminates the data loss window between pop and push operations
+const LUA_RELIABLE_ENQUEUE = `
+local key, now_seconds, now_millis = KEYS[1], ARGV[1], ARGV[2]
+local jobs = redis.call("zrange", key, "-inf", now_seconds, "byscore", "limit", 0, 1)
 if jobs[1] then
   redis.call("zrem", key, jobs[1])
+  local job = cjson.decode(jobs[1])
+  local queue = job.queue or "default"
+  job.enqueued_at = tonumber(now_millis)
+  local payload = cjson.encode(job)
+  redis.call("sadd", "queues", queue)
+  redis.call("lpush", "queue:" .. queue, payload)
   return jobs[1]
 end
 `;
@@ -616,26 +623,27 @@ export class Runner {
       return;
     }
     const redis = this.baseRedis ?? (await this.config.getRedisClient());
-    const client = new Client({ config: this.config });
-    const now = Date.now() / 1000;
+    const nowMs = Date.now();
+    const nowSeconds = nowMs / 1000;
     const sets = ["schedule", "retry"];
 
     for (const set of sets) {
       while (!this.stopping) {
+        // Atomic operation: pop from sorted set AND push to queue in one step
+        // This eliminates data loss if process crashes between operations
         const job = (await redis.sendCommand([
           "EVAL",
-          LUA_ZPOPBYSCORE,
+          LUA_RELIABLE_ENQUEUE,
           "1",
           set,
-          String(now),
+          String(nowSeconds),
+          String(nowMs),
         ])) as string | null;
 
         if (!job) {
           break;
         }
-
-        const payload = loadJson(job) as JobPayload;
-        await client.push(payload);
+        // Job was atomically moved to its queue - no additional action needed
       }
     }
   }
