@@ -633,65 +633,45 @@ The worker handles these signals:
 | `SIGTSTP` | Quiet mode (stop accepting new jobs) |
 | `SIGTTIN` | Dump current job state to logs |
 
-The shutdown timeout (default: 25 seconds) allows in-flight jobs to complete before forced termination.
+### Quiet Mode
 
-## Production Deployment
+When a worker enters quiet mode (`runner.quiet()` or `SIGTSTP`):
 
-### Process Manager
+1. Stops polling queues for new jobs
+2. In-flight jobs continue running to completion
+3. Worker stays alive but idle
 
-Use a process manager like systemd, PM2, or Docker:
+This is useful for graceful deploys—quiet the old workers, start new ones, then stop the old workers.
 
-**systemd example:**
+### Stop/Shutdown
 
-```ini
-[Unit]
-Description=Sidekiq Worker
-After=network.target redis.service
+When `runner.stop()` is called (or `SIGINT`/`SIGTERM` received):
 
-[Service]
-Type=simple
-User=app
-WorkingDirectory=/app
-ExecStart=/usr/bin/npx sidekiq -C /app/sidekiq.json
-Restart=always
-RestartSec=5
+1. **Quiet first** — Stops accepting new jobs
+2. **Signal jobs** — Aborts the `AbortSignal` so jobs can detect shutdown via `this.signal` or `this.interrupted()`
+3. **Wait for jobs** — Waits up to `timeout` seconds (default: 25) for in-flight jobs to complete
+4. **Requeue incomplete jobs** — Any jobs still running after the timeout are pushed back to their Redis queues (`RPUSH queue:<name>`) so another worker can pick them up
+5. **Cleanup Redis** — Removes this worker from the `processes` set and deletes heartbeat keys
 
-[Install]
-WantedBy=multi-user.target
+### Redis Cleanup on Shutdown
+
+When a worker shuts down cleanly, it removes its presence from Redis:
+
+```
+SREM processes <identity>       # Remove from active processes set
+UNLINK <identity>:work          # Delete work-in-progress tracking
+UNLINK <identity>               # Delete heartbeat data
 ```
 
-**PM2 example:**
+Jobs that didn't complete within the timeout are requeued:
 
-```javascript
-// ecosystem.config.js
-module.exports = {
-  apps: [{
-    name: "sidekiq-worker",
-    script: "npx",
-    args: "sidekiq -C sidekiq.json",
-    instances: 2,
-    exec_mode: "cluster",
-  }]
-};
+```
+RPUSH queue:<name> <job-payload>  # Push back to queue for retry
 ```
 
-**Docker example:**
+This ensures no jobs are lost during deployments or restarts.
 
-```dockerfile
-FROM node:24-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY dist ./dist
-COPY sidekiq.json ./
-CMD ["npx", "sidekiq", "-C", "sidekiq.json"]
-```
-
-```bash
-# Build and run
-docker build -t my-worker .
-docker run -e REDIS_URL=redis://host:6379 my-worker
-```
+## Production
 
 ### Redis Configuration
 
