@@ -158,10 +158,6 @@ export class Config {
   ): Promise<void> {
     const { oneshot = true, reverse = false, reraise = false } = options;
 
-    if (oneshot) {
-      this.logger.debug(() => `Firing ${event} event`);
-    }
-
     const handlers = [...this.lifecycleEvents[event]];
     if (reverse) {
       handlers.reverse();
