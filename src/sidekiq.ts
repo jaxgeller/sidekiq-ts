@@ -1,3 +1,4 @@
+import { createShutdownHandler } from "./cli-helpers.js";
 import { Config } from "./config.js";
 import { dumpJson, loadJson } from "./json.js";
 import type { MiddlewareConstructor } from "./middleware.js";
@@ -7,6 +8,7 @@ import {
   registeredJob,
   registerJob,
 } from "./registry.js";
+import type { Runner } from "./runner.js";
 import type {
   ConfigOptions,
   DeathHandler,
@@ -19,6 +21,12 @@ import type {
   SidekiqEventName,
   StrictArgsMode,
 } from "./types.js";
+
+interface RunOptions {
+  config?: Config;
+  /** Auto-register SIGINT/SIGTERM handlers for graceful shutdown */
+  signals?: boolean;
+}
 
 // biome-ignore lint/complexity/noStaticOnlyClass: Sidekiq class provides namespace for configuration and utilities
 export class Sidekiq {
@@ -242,7 +250,7 @@ export class Sidekiq {
     return registeredJob(name);
   }
 
-  static async run({ config }: { config?: Config } = {}) {
+  static async run({ config, signals }: RunOptions = {}): Promise<Runner> {
     if (config) {
       this.config = config;
     }
@@ -250,6 +258,36 @@ export class Sidekiq {
     const { Runner } = await import("./runner.js");
     const runner = new Runner(this.config);
     await runner.start();
+
+    if (signals) {
+      this.registerSignalHandlers(runner);
+    }
+
     return runner;
+  }
+
+  private static registerSignalHandlers(runner: Runner): void {
+    const shutdown = createShutdownHandler({
+      logger: this.config.logger,
+      stop: () => runner.stop(),
+      exit: (code) => process.exit(code),
+    });
+
+    const registerSignal = (
+      signal: string,
+      handler: () => void | Promise<void>
+    ) => {
+      try {
+        process.on(signal as NodeJS.Signals, () => {
+          Promise.resolve(handler()).catch(() => undefined);
+        });
+      } catch {
+        // Signal not supported on this platform
+      }
+    };
+
+    registerSignal("SIGINT", () => shutdown("SIGINT"));
+    registerSignal("SIGTERM", () => shutdown("SIGTERM"));
+    registerSignal("SIGTSTP", () => runner.quiet());
   }
 }

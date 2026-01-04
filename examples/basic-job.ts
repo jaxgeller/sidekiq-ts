@@ -19,8 +19,9 @@ Sidekiq.defaultConfiguration.redis = { url: "redis://localhost:6379" };
 // Define a job by extending the Job class.
 // The type parameter specifies the argument types for perform().
 class WelcomeEmailJob extends Job<[string, string]> {
-  perform(email: string, name: string) {
+  async perform(email: string, name: string) {
     console.log(`Sending welcome email to ${name} <${email}>`);
+    await fetch("http://httpbin.org/delay/1");
     // In a real app, you'd send an actual email here
   }
 }
@@ -39,15 +40,10 @@ async function main() {
   console.log(`Enqueued job ${jid2}`);
 
   // Start the worker to process jobs
+  // The `signals: true` option auto-registers SIGINT/SIGTERM handlers
+  // for graceful shutdown (Ctrl+C will wait for in-flight jobs to complete)
   console.log("\nStarting worker...");
-  const runner = await Sidekiq.run();
-
-  // Let the worker process for a bit, then stop
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  await runner.stop();
-
-  console.log("\nDone!");
-  process.exit(0);
+  await Sidekiq.run({ signals: true });
 }
 
 main().catch(console.error);

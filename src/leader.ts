@@ -9,6 +9,7 @@
  */
 
 import { hostname } from "node:os";
+import { sleepWithAbort } from "./abort-utils.js";
 import type { Config } from "./config.js";
 import type { RedisClient } from "./redis.js";
 
@@ -208,26 +209,7 @@ export class LeaderElector {
       const interval = this.isLeader
         ? this.refreshInterval
         : this.checkInterval;
-      await this.sleepWithAbort(interval);
+      await sleepWithAbort(interval, this.stopController?.signal);
     }
-  }
-
-  private async sleepWithAbort(ms: number): Promise<void> {
-    const controller = this.stopController;
-    if (!controller || controller.signal.aborted) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        controller.signal.removeEventListener("abort", onAbort);
-        resolve();
-      }, ms);
-      const onAbort = () => {
-        clearTimeout(timeout);
-        controller.signal.removeEventListener("abort", onAbort);
-        resolve();
-      };
-      controller.signal.addEventListener("abort", onAbort, { once: true });
-    });
   }
 }

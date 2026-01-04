@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { sleepWithAbort } from "./abort-utils.js";
 import { compressBacktrace, extractBacktrace } from "./backtrace.js";
 import type { Config } from "./config.js";
 import { ensureInterruptHandler } from "./interrupt-handler.js";
@@ -136,9 +137,11 @@ export class Runner {
   private quieting = false;
   private stopping = false;
   private readonly workers: Promise<void>[] = [];
-  private schedulerHandle?: NodeJS.Timeout;
   private schedulerRunning = false;
-  private heartbeatHandle?: NodeJS.Timeout;
+  private schedulerController?: AbortController;
+  private heartbeatController?: AbortController;
+  private heartbeatLoopPromise?: Promise<void>;
+  private jobController?: AbortController;
   private readonly queueStrategy: QueueStrategy;
   private baseRedis?: Awaited<ReturnType<Config["getRedisClient"]>>;
   private readonly workerRedis: Awaited<
@@ -170,6 +173,7 @@ export class Runner {
 
   async start(): Promise<void> {
     this.baseRedis = await this.config.getRedisClient();
+    this.jobController = new AbortController();
     ensureInterruptHandler(this.config);
 
     // Start leader election
@@ -208,6 +212,7 @@ export class Runner {
       await this.quiet();
     }
     this.stopping = true;
+    this.jobController?.abort();
     await this.config.fireEvent("shutdown", { reverse: true });
 
     // Stop periodic scheduler and leader election
@@ -217,8 +222,13 @@ export class Runner {
     this.stopHeartbeat();
     this.stopScheduler();
 
+    // Wait for heartbeat loop to finish
+    if (this.heartbeatLoopPromise) {
+      await this.heartbeatLoopPromise;
+    }
+
     // Brief pause to allow idle processors to finish
-    await sleep(PAUSE_TIME_MS);
+    await sleepWithAbort(PAUSE_TIME_MS, undefined);
 
     const deadline = Date.now() + this.config.timeout * 1000;
 
@@ -293,6 +303,7 @@ export class Runner {
 
   private startScheduler(): void {
     this.schedulerRunning = true;
+    this.schedulerController = new AbortController();
     this.runSchedulerLoop().catch(() => undefined);
   }
 
@@ -303,7 +314,7 @@ export class Runner {
     while (this.schedulerRunning && !this.stopping) {
       await this.enqueueScheduled().catch(() => undefined);
       const intervalMs = await this.randomPollInterval();
-      await sleep(intervalMs);
+      await sleepWithAbort(intervalMs, this.schedulerController?.signal);
     }
   }
 
@@ -319,7 +330,10 @@ export class Runner {
     waitSeconds += Math.random() * 5; // 0-5 seconds jitter
 
     if (waitSeconds > 0) {
-      await sleep(waitSeconds * 1000);
+      await sleepWithAbort(
+        waitSeconds * 1000,
+        this.schedulerController?.signal
+      );
     }
 
     // Run cleanup after initial wait
@@ -360,10 +374,7 @@ export class Runner {
 
   private stopScheduler(): void {
     this.schedulerRunning = false;
-    if (this.schedulerHandle) {
-      clearInterval(this.schedulerHandle);
-      this.schedulerHandle = undefined;
-    }
+    this.schedulerController?.abort();
   }
 
   private async heartbeat(): Promise<void> {
@@ -605,17 +616,23 @@ export class Runner {
   }
 
   private startHeartbeat(): void {
+    this.heartbeatController = new AbortController();
+    this.heartbeatLoopPromise = this.heartbeatLoop();
+  }
+
+  private async heartbeatLoop(): Promise<void> {
     const intervalMs = this.config.heartbeatInterval * 1000;
-    this.heartbeatHandle = setInterval(() => {
-      this.heartbeat().catch(() => undefined);
-    }, intervalMs);
+    while (!this.stopping) {
+      await sleepWithAbort(intervalMs, this.heartbeatController?.signal);
+      if (this.stopping) {
+        break;
+      }
+      await this.heartbeat().catch(() => undefined);
+    }
   }
 
   private stopHeartbeat(): void {
-    if (this.heartbeatHandle) {
-      clearInterval(this.heartbeatHandle);
-      this.heartbeatHandle = undefined;
-    }
+    this.heartbeatController?.abort();
   }
 
   private async enqueueScheduled(): Promise<void> {
@@ -756,7 +773,10 @@ export class Runner {
 
     const job = new klass();
     job.jid = payload.jid;
-    job._context = { stopping: () => this.stopping };
+    job._context = {
+      stopping: () => this.stopping,
+      signal: this.jobController?.signal,
+    };
 
     try {
       let executed = false;

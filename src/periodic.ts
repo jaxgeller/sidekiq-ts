@@ -5,6 +5,7 @@
  * Only the leader process enqueues periodic jobs to prevent duplicates.
  */
 
+import { sleepWithAbort } from "./abort-utils.js";
 import { Client } from "./client.js";
 import type { Config } from "./config.js";
 import { type CronSchedule, parseCron, shouldRunAt } from "./cron.js";
@@ -17,8 +18,6 @@ import type { JobOptions } from "./types.js";
 const CRON_KEY = "cron";
 const CRON_LOCK_PREFIX = "cron:lock:";
 const CRON_LOCK_TTL_SECONDS = 60;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface PeriodicJobOptions extends JobOptions {
   /** Job arguments */
@@ -55,6 +54,7 @@ export class PeriodicScheduler {
   private redis?: RedisClient;
   private running = false;
   private loopPromise?: Promise<void>;
+  private stopController?: AbortController;
 
   constructor(config: Config, leaderElector: LeaderElector) {
     this.config = config;
@@ -129,6 +129,7 @@ export class PeriodicScheduler {
 
     this.redis = await this.config.getRedisClient();
     this.running = true;
+    this.stopController = new AbortController();
 
     // Persist job configs to Redis for visibility
     await this.syncToRedis();
@@ -146,6 +147,7 @@ export class PeriodicScheduler {
     }
 
     this.running = false;
+    this.stopController?.abort();
 
     // Remove job configs from Redis
     if (this.redis && this.jobs.size > 0) {
@@ -212,7 +214,7 @@ export class PeriodicScheduler {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: scheduler loop requires multiple conditional checks
   private async periodicLoop(): Promise<void> {
     // Wait for initial sync with jitter to avoid thundering herd
-    await sleep(Math.random() * 5000);
+    await sleepWithAbort(Math.random() * 5000, this.stopController?.signal);
 
     while (this.running) {
       // Wait until the next minute boundary plus jitter
@@ -221,7 +223,7 @@ export class PeriodicScheduler {
       const jitter = Math.random() * 2000; // 0-2 seconds
       const waitMs = Math.max(0, nextMinute - now + jitter);
 
-      await sleep(waitMs);
+      await sleepWithAbort(waitMs, this.stopController?.signal);
 
       if (!this.running) {
         break;

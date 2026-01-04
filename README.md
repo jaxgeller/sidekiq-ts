@@ -85,17 +85,22 @@ Inside `perform`, you can access:
 
 ```typescript
 class MyJob extends Job<[string]> {
-  perform(data: string) {
+  async perform(data: string) {
     // Unique job ID
     console.log(this.jid);
 
     // Check if worker is stopping (for graceful shutdown)
-    if (this._context?.stopping()) {
+    if (this.interrupted()) {
       return; // Exit early
     }
+
+    // Get the AbortSignal for cancellation-aware APIs
+    const response = await fetch(url, { signal: this.signal });
   }
 }
 ```
+
+The `signal` property returns an `AbortSignal` that is aborted when the worker is shutting down. Use it with `fetch()`, streams, database drivers, or any API that supports `AbortSignal` for graceful cancellation.
 
 ## Job Options
 
@@ -260,9 +265,16 @@ import { Sidekiq } from "sidekiq-ts";
 import "./jobs/email-job.js";
 import "./jobs/report-job.js";
 
+// Start worker with automatic signal handling
+const runner = await Sidekiq.run({ signals: true });
+// SIGINT/SIGTERM will gracefully stop the worker
+```
+
+The `signals: true` option registers handlers for `SIGINT`, `SIGTERM`, and `SIGTSTP` that gracefully shut down the worker. For custom signal handling:
+
+```typescript
 const runner = await Sidekiq.run();
 
-// Handle shutdown signals
 process.on("SIGTERM", async () => {
   await runner.stop();
   process.exit(0);

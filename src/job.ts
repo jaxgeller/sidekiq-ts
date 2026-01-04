@@ -46,7 +46,7 @@ type JobArgsFromClass<T> = T extends { new (): Job<infer TArgs> }
 
 export abstract class Job<TArgs extends unknown[] = unknown[]> {
   jid?: string;
-  _context?: { stopping: () => boolean };
+  _context?: { stopping: () => boolean; signal?: AbortSignal };
 
   static getSidekiqOptions(this: JobConstructor): JobOptions {
     const base = Sidekiq.defaultJobOptions();
@@ -232,6 +232,15 @@ export abstract class Job<TArgs extends unknown[] = unknown[]> {
 
   interrupted(): boolean {
     return this._context?.stopping() ?? false;
+  }
+
+  /**
+   * Get the AbortSignal for this job.
+   * Can be used with fetch(), streams, or any AbortSignal-compatible API.
+   * The signal is aborted when the runner is shutting down.
+   */
+  get signal(): AbortSignal | undefined {
+    return this._context?.signal;
   }
 
   abstract perform(...args: TArgs): Promise<void> | void;

@@ -682,3 +682,118 @@ describe("Invalid Job Handling", () => {
     await config.close();
   }, 15_000);
 });
+
+describe("Job AbortSignal", () => {
+  it("provides signal in job context", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let capturedInterrupted: boolean | undefined;
+
+    class SignalJob extends Job {
+      perform(): void {
+        capturedSignal = this.signal;
+        capturedInterrupted = this.interrupted();
+      }
+    }
+    Sidekiq.registerJob(SignalJob);
+
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+    });
+
+    const runner = await Sidekiq.run({ config });
+    await SignalJob.performAsync();
+
+    await waitFor(() => capturedSignal !== undefined);
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal?.aborted).toBe(false);
+    expect(capturedInterrupted).toBe(false);
+
+    await runner.stop();
+
+    // Signal should be aborted after runner stops
+    expect(capturedSignal?.aborted).toBe(true);
+
+    await config.close();
+  }, 10_000);
+
+  it("signal is aborted during shutdown while job runs", async () => {
+    let signalAbortedDuringJob = false;
+
+    class LongSignalJob extends Job {
+      async perform(): Promise<void> {
+        const signal = this.signal;
+        signal?.addEventListener("abort", () => {
+          signalAbortedDuringJob = true;
+        });
+        // Long running job
+        await sleep(1000);
+      }
+    }
+    Sidekiq.registerJob(LongSignalJob);
+
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      timeout: 10,
+    });
+
+    const runner = await Sidekiq.run({ config });
+    await LongSignalJob.performAsync();
+
+    // Wait for job to start
+    await sleep(100);
+
+    // Stop while job is still running
+    const stopPromise = runner.stop();
+
+    // Wait a bit for abort to fire
+    await sleep(100);
+
+    expect(signalAbortedDuringJob).toBe(true);
+
+    await stopPromise;
+    await config.close();
+  }, 15_000);
+
+  it("interrupted() returns true during shutdown", async () => {
+    let wasInterrupted = false;
+
+    class InterruptCheckJob extends Job {
+      async perform(): Promise<void> {
+        // Check periodically during execution
+        while (!this.interrupted()) {
+          await sleep(50);
+        }
+        wasInterrupted = true;
+      }
+    }
+    Sidekiq.registerJob(InterruptCheckJob);
+
+    const config = new Config({
+      redis: { url: redisUrl },
+      concurrency: 1,
+      queues: ["default"],
+      pollIntervalAverage: 1,
+      timeout: 10,
+    });
+
+    const runner = await Sidekiq.run({ config });
+    await InterruptCheckJob.performAsync();
+
+    // Wait for job to start
+    await sleep(100);
+
+    // Stop while job is checking interrupted()
+    await runner.stop();
+
+    expect(wasInterrupted).toBe(true);
+
+    await config.close();
+  }, 15_000);
+});
