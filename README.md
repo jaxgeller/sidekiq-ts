@@ -12,6 +12,7 @@ A TypeScript implementation of [Sidekiq](https://sidekiq.org/) for Node.js. Proc
 - **Leader election** - Coordinate across distributed workers
 - **Cron jobs** - Periodic job scheduling with standard cron expressions
 - **Middleware** - Customize job enqueueing and execution
+- **Rate limiting** - Control concurrent operations and API call rates
 - **CLI** - Run workers from the command line
 - **Testing utilities** - Fake and inline modes for testing
 
@@ -394,6 +395,157 @@ class TimingMiddleware {
 }
 
 Sidekiq.useServerMiddleware(TimingMiddleware);
+```
+
+## Rate Limiting
+
+Limit concurrent operations or API call rates across all workers. Similar to [Sidekiq Enterprise rate limiting](https://github.com/sidekiq/sidekiq/wiki/Ent-Rate-Limiting).
+
+### Creating Limiters
+
+```typescript
+import { Limiter } from "sidekiq-ts";
+
+// Limit concurrent operations (distributed mutex)
+const apiLimiter = Limiter.concurrent("external-api", 50);
+
+// Limit operations per time boundary (resets at interval start)
+const emailLimiter = Limiter.bucket("email-send", 100, "minute");
+
+// Limit operations in a rolling window
+const requestLimiter = Limiter.window("api-requests", 1000, "hour");
+```
+
+### Using in Jobs
+
+```typescript
+import { Job, Limiter } from "sidekiq-ts";
+
+const stripeLimiter = Limiter.concurrent("stripe-api", 25);
+
+class ChargeCustomerJob extends Job<[string, number]> {
+  async perform(customerId: string, amount: number) {
+    await stripeLimiter.withinLimit(async () => {
+      await stripe.charges.create({
+        customer: customerId,
+        amount,
+      });
+    });
+  }
+}
+```
+
+When the limit is exceeded, `withinLimit()` throws an `OverLimitError`.
+
+### Auto-Reschedule with Middleware
+
+To automatically reschedule jobs when rate limited (like Sidekiq Enterprise):
+
+```typescript
+import { Sidekiq, ensureRateLimitMiddleware } from "sidekiq-ts";
+
+// Add the middleware before starting the worker
+ensureRateLimitMiddleware(Sidekiq.defaultConfiguration);
+
+const runner = await Sidekiq.run();
+```
+
+The middleware catches `OverLimitError` and reschedules the job with backoff (~5 minutes + jitter). After 20 reschedules, the job fails normally.
+
+### Limiter Types
+
+#### Concurrent Limiter
+
+Limits how many operations can run simultaneously across all workers:
+
+```typescript
+// Max 10 concurrent Stripe API calls
+const limiter = Limiter.concurrent("stripe", 10, {
+  lockTimeout: 180, // Auto-release lock after 180 seconds (default)
+});
+```
+
+#### Bucket Limiter
+
+Allows N operations per time interval, resetting at boundaries:
+
+```typescript
+// 100 emails per minute, resets at :00 of each minute
+const limiter = Limiter.bucket("email", 100, "minute");
+
+// With numeric interval (seconds)
+const limiter = Limiter.bucket("sms", 50, 30); // 50 per 30 seconds
+```
+
+Intervals: `"second"`, `"minute"`, `"hour"`, `"day"`, or number of seconds.
+
+#### Window Limiter
+
+Allows N operations in a rolling time window:
+
+```typescript
+// 1000 requests per hour, rolling window
+const limiter = Limiter.window("api", 1000, "hour");
+```
+
+### Limiter Methods
+
+```typescript
+// Execute within the rate limit
+await limiter.withinLimit(async () => {
+  await doWork();
+});
+
+// Check current status (non-blocking)
+const status = await limiter.check();
+console.log(status.allowed);  // true if under limit
+console.log(status.current);  // current usage
+console.log(status.limit);    // max allowed
+
+// Reset the limiter
+await limiter.reset();
+```
+
+### Dynamic Limiters
+
+Create per-user or per-resource limiters with dynamic names:
+
+```typescript
+class UserApiCallJob extends Job<[string, string]> {
+  async perform(userId: string, endpoint: string) {
+    // Each user gets their own rate limit
+    const userLimiter = Limiter.window(`user-${userId}-api`, 100, "minute");
+
+    await userLimiter.withinLimit(async () => {
+      await fetch(endpoint);
+    });
+  }
+}
+```
+
+Redis keys are created per unique name: `limiter:user-123-api`, `limiter:user-456-api`, etc.
+
+For high-throughput scenarios, cache limiter instances:
+
+```typescript
+const userLimiters = new Map<string, ILimiter>();
+
+function getUserLimiter(userId: string): ILimiter {
+  let limiter = userLimiters.get(userId);
+  if (!limiter) {
+    limiter = Limiter.window(`user-${userId}-api`, 100, "minute");
+    userLimiters.set(userId, limiter);
+  }
+  return limiter;
+}
+```
+
+### Custom Key Prefix
+
+```typescript
+const limiter = Limiter.concurrent("api", 10, {
+  keyPrefix: "myapp", // Redis key: myapp:api (default: limiter:api)
+});
 ```
 
 ## Leader Election
