@@ -13,6 +13,7 @@ A TypeScript implementation of [Sidekiq](https://sidekiq.org/) for Node.js. Proc
 - **Cron jobs** - Periodic job scheduling with standard cron expressions
 - **Middleware** - Customize job enqueueing and execution
 - **Rate limiting** - Control concurrent operations and API call rates
+- **Iterable jobs** - Process large datasets with automatic checkpointing and resume
 - **CLI** - Run workers from the command line
 - **Testing utilities** - Fake and inline modes for testing
 
@@ -192,6 +193,179 @@ const jids = await ReminderJob.performBulk([
   [3, "Deploy to staging"],
 ]);
 ```
+
+## Iterable Jobs
+
+Iterable jobs process large collections of items with automatic checkpointing. If the worker is interrupted (by timeout, deployment, or shutdown), the job resumes from where it left off rather than starting over.
+
+### Basic Example
+
+```typescript
+import { IterableJob } from "sidekiq-ts";
+
+interface User {
+  id: number;
+  email: string;
+}
+
+class SendWelcomeEmailsJob extends IterableJob<[], User, number> {
+  // Type parameters: [TArgs, TItem, TCursor]
+  // TArgs = [] (no arguments)
+  // TItem = User (what we're iterating over)
+  // TCursor = number (array index for tracking position)
+
+  buildEnumerator({ cursor }: { cursor: number | null }) {
+    const users = getUsersToEmail(); // Your data source
+    return this.arrayEnumerator(users, cursor);
+  }
+
+  async eachIteration(user: User) {
+    await sendWelcomeEmail(user.email);
+  }
+}
+
+await SendWelcomeEmailsJob.performAsync();
+```
+
+### How It Works
+
+1. **First execution**: `buildEnumerator` is called with `cursor: null`, starting from the beginning
+2. **Processing**: `eachIteration` is called for each item yielded by the enumerator
+3. **Interruption**: If the job exceeds `maxIterationRuntime` or the worker shuts down, the current cursor position is saved to Redis
+4. **Resume**: The job is automatically re-queued and `buildEnumerator` receives the saved cursor to resume from that position
+5. **Completion**: When the enumerator is exhausted, the job completes and state is cleaned up
+
+State is persisted to Redis every 5 seconds and on interruption, stored for 30 days.
+
+### Configuration
+
+Set the maximum runtime before a job is interrupted and re-queued:
+
+```typescript
+// Interrupt after 5 minutes and re-queue
+Sidekiq.defaultConfiguration.maxIterationRuntime = 300;
+```
+
+When `maxIterationRuntime` is set, jobs automatically checkpoint and resume. Without it, jobs run to completion (or until worker shutdown).
+
+### Custom Enumerators
+
+For data sources other than arrays, return any iterator yielding `[item, cursor]` tuples:
+
+```typescript
+class ProcessOrdersJob extends IterableJob<[string], Order, string> {
+  async *buildEnumerator(dateRange: string, { cursor }: { cursor: string | null }) {
+    let pageToken = cursor;
+
+    do {
+      const { orders, nextPageToken } = await fetchOrders(dateRange, pageToken);
+      for (const order of orders) {
+        yield [order, nextPageToken ?? order.id] as const;
+      }
+      pageToken = nextPageToken;
+    } while (pageToken);
+  }
+
+  async eachIteration(order: Order, dateRange: string) {
+    await processOrder(order);
+  }
+}
+```
+
+### Lifecycle Hooks
+
+Override these methods to run code at specific points:
+
+```typescript
+class BatchProcessJob extends IterableJob<[], Item, number> {
+  async onStart() {
+    // Called once on the very first execution
+    this.logger().info(() => "Starting batch process");
+  }
+
+  async onResume() {
+    // Called on subsequent executions after interruption
+    this.logger().info(() => "Resuming batch process");
+  }
+
+  async onStop() {
+    // Called before each interruption (timeout or shutdown)
+    await this.flushBuffer();
+  }
+
+  async onComplete() {
+    // Called after all items have been processed
+    await this.sendCompletionNotification();
+  }
+
+  async onCancel() {
+    // Called when the job is explicitly cancelled
+    await this.cleanup();
+  }
+
+  async aroundIteration(fn: () => Promise<void>) {
+    // Wraps each call to eachIteration
+    await this.acquireLock();
+    try {
+      await fn();
+    } finally {
+      await this.releaseLock();
+    }
+  }
+
+  // ... buildEnumerator and eachIteration
+}
+```
+
+### Cancellation
+
+Cancel a running iterable job by its JID:
+
+```typescript
+import { IterableJob } from "sidekiq-ts";
+
+// Get the JID when enqueueing
+const jid = await LongRunningJob.performAsync();
+
+// Later, cancel it
+const job = new LongRunningJob();
+job.jid = jid;
+await job.cancel();
+```
+
+When cancelled:
+- The current iteration completes
+- `onCancel()` is called
+- No further items are processed
+- The job ends without being re-queued
+
+### Early Termination
+
+Use `abort()` to gracefully stop iteration from within `eachIteration`:
+
+```typescript
+class ProcessUntilErrorJob extends IterableJob<[], Item, number> {
+  async eachIteration(item: Item) {
+    const result = await processItem(item);
+
+    if (result.shouldStop) {
+      this.abort(); // Stops iteration, calls onComplete
+    }
+  }
+
+  // ...
+}
+```
+
+### Error Handling
+
+If `eachIteration` throws an error:
+
+1. The current cursor position is flushed to Redis
+2. The error propagates up (triggering normal retry behavior)
+3. On retry, the job resumes from the failed item
+
+This means failed items are retried, not skipped.
 
 ## Configuration
 
